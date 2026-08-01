@@ -237,9 +237,8 @@ CORS_ALLOW_CREDENTIALS = True
 REST_FRAMEWORK = {
 
     "DEFAULT_AUTHENTICATION_CLASSES": (
-
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "apps.accounts.authentication.FirebaseAuthentication",
-
     ),
 
     "DEFAULT_PERMISSION_CLASSES": (
@@ -256,10 +255,6 @@ REST_FRAMEWORK = {
         "shared.pagination.pagination.CustomPagination",
 
     "PAGE_SIZE": 10,
-
-    "EXCEPTION_HANDLER":
-        "shared.exceptions.custom_exception_handler",
-
 }
 
 # -------------------------------------------------

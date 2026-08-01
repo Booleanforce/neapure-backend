@@ -1,7 +1,12 @@
 from django.db import models
 
+from .uuid import UUIDMixin
 
-class BaseModel(models.Model):
+
+class BaseModel(
+    UUIDMixin,
+    models.Model,
+):
     created_at = models.DateTimeField(
         auto_now_add=True
     )
