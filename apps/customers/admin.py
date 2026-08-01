@@ -11,6 +11,7 @@ from apps.dealers.admin import DealerProfileInline, RegisteredCustomerInline, Re
 
 class CustomerProfileInline(admin.StackedInline):
     model = CustomerProfile
+    fk_name = "user"
     can_delete = False
     verbose_name_plural = "Customer Profile"
 
