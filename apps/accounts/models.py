@@ -3,6 +3,8 @@ from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 
 from shared.mixins.base import BaseModel
+from shared.mixins.uuid import UUIDMixin
+from shared.mixins.soft_delete import SoftDeleteModel
 
 from .managers import UserManager
 
@@ -12,6 +14,7 @@ from shared.constants.roles import UserRole
 class User(
     AbstractBaseUser,
     PermissionsMixin,
+    SoftDeleteModel,
     BaseModel,
 ):
 

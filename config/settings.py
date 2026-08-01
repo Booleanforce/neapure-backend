@@ -65,7 +65,8 @@ INSTALLED_APPS = [
     "django_filters",
 
     # Local Apps
-    "apps.accounts"
+    "apps.accounts",
+    "apps.customers",
 
 ]
 
