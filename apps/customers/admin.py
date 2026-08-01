@@ -3,6 +3,7 @@ from apps.accounts.models import User
 from apps.accounts.admin import UserAdmin
 from shared.constants.roles import UserRole
 from apps.customers.models import CustomerProfile, CustomerAddress, CustomerNote, CustomerHistory
+from apps.dealers.admin import DealerProfileInline, RegisteredCustomerInline, RegisteredProductInline, InstallationRequestInline
 
 # ---------------------------------------------------------
 # Inlines for Unified User Admin Dashboard
@@ -50,5 +51,12 @@ class CustomUserAdmin(UserAdmin):
                 CustomerAddressInline,
                 CustomerNoteInline,
                 CustomerHistoryInline
+            ]
+        elif obj and obj.role == UserRole.DEALER:
+            return [
+                DealerProfileInline, 
+                RegisteredCustomerInline,
+                RegisteredProductInline,
+                InstallationRequestInline
             ]
         return super().get_inlines(request, obj)

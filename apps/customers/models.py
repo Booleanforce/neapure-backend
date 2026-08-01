@@ -15,6 +15,13 @@ class CustomerProfile(SoftDeleteModel, BaseModel):
         on_delete=models.CASCADE,
         related_name="customer_profile"
     )
+    registered_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="registered_customers"
+    )
     alternate_phone = models.CharField(max_length=20, blank=True, default="")
     status = models.CharField(
         max_length=20,

@@ -30,6 +30,8 @@ class CustomerViewSet(viewsets.ModelViewSet):
         
         if user.role == UserRole.CUSTOMER:
             return queryset.filter(id=user.id)
+        elif user.role == UserRole.DEALER:
+            return queryset.filter(customer_profile__registered_by=user)
         
         return queryset
 
@@ -59,6 +61,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
             description=f"Customer registered by {request.user.email}.",
             performed_by=request.user
         )
+        
+        # Link customer to the dealer or admin who registered them
+        profile = user.customer_profile
+        profile.registered_by = request.user
+        profile.save(update_fields=["registered_by"])
 
         return Response(CustomerSerializer(user).data, status=status.HTTP_201_CREATED)
 

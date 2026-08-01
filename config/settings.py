@@ -67,6 +67,9 @@ INSTALLED_APPS = [
     # Local Apps
     "apps.accounts",
     "apps.customers",
+    "apps.dealers",
+    "apps.products",
+    "apps.installations",
 
 ]
 
