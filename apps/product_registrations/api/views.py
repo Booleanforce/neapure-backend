@@ -140,7 +140,8 @@ class ProductRegistrationViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.get_serializer().Meta.model.objects.filter(pk=instance.pk).update(
             is_deleted=True,
-            deleted_at=timezone.now()
+            deleted_at=timezone.now(),
+            updated_at=timezone.now()
         )
         return ApiResponse.success(
             message="Registration soft-deleted.",
