@@ -65,7 +65,9 @@ INSTALLED_APPS = [
     "django_filters",
 
     # Local Apps
-    "apps.accounts"
+    "apps.accounts",
+    "apps.products",
+    "apps.product_registrations",
 
 ]
 
@@ -192,7 +194,6 @@ STATIC_URL = "/static/"
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # -------------------------------------------------
 # Media Files
@@ -206,17 +207,21 @@ MEDIA_ROOT = BASE_DIR / "media"
 # Cloudinary
 # -------------------------------------------------
 
-cloudinary.config(
-    cloud_name=config("CLOUDINARY_CLOUD_NAME"),
+CLOUDINARY_STORAGE = {
+    "CLOUD_NAME": config("CLOUDINARY_CLOUD_NAME"),
+    "API_KEY": config("CLOUDINARY_API_KEY"),
+    "API_SECRET": config("CLOUDINARY_API_SECRET"),
+    "SECURE": True,
+}
 
-    api_key=config("CLOUDINARY_API_KEY"),
-
-    api_secret=config("CLOUDINARY_API_SECRET"),
-
-    secure=True,
-)
-
-DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+STORAGES = {
+    "default": {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # -------------------------------------------------
 # CORS
@@ -260,6 +265,7 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER":
         "shared.exceptions.custom_exception_handler",
 
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # -------------------------------------------------
@@ -273,6 +279,12 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "NeaPure Smart Water Care Platform API",
 
     "VERSION": "1.0.0",
+
+    "ENUM_NAME_OVERRIDES": {
+        "ProductStatusEnum": "apps.products.constants.ProductStatus",
+        "InstallationStatusEnum": "apps.product_registrations.constants.InstallationStatus",
+        "WarrantyStatusEnum": "apps.product_registrations.constants.WarrantyStatus",
+    },
 
 }
 

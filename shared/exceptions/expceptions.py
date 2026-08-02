@@ -13,5 +13,5 @@ def custom_exception_handler(exc, context):
     return ApiResponse.error(
         message="Request Failed",
         errors=response.data,
-        status_code=response.status_code,
+        status=response.status_code,
     )
