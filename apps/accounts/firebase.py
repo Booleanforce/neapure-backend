@@ -23,8 +23,15 @@ def initialize_firebase():
         settings.FIREBASE_CREDENTIALS,
     )
 
-    cred = credentials.Certificate(credential_path)
+    if not os.path.exists(credential_path):
+        print("Warning: Firebase credentials not found at", credential_path)
+        return None
 
-    firebase_app = firebase_admin.initialize_app(cred)
+    try:
+        cred = credentials.Certificate(credential_path)
+        firebase_app = firebase_admin.initialize_app(cred)
+    except Exception as e:
+        print("Failed to initialize Firebase:", e)
+        return None
 
     return firebase_app

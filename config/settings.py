@@ -65,7 +65,11 @@ INSTALLED_APPS = [
     "django_filters",
 
     # Local Apps
-    "apps.accounts"
+    "apps.accounts",
+    "apps.customers",
+    "apps.dealers",
+    "apps.products",
+    "apps.installations",
 
 ]
 
@@ -74,12 +78,10 @@ INSTALLED_APPS = [
 # -------------------------------------------------
 
 MIDDLEWARE = [
-
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
 
     "whitenoise.middleware.WhiteNoiseMiddleware",
-
-    "corsheaders.middleware.CorsMiddleware",
 
     "django.contrib.sessions.middleware.SessionMiddleware",
 
@@ -319,3 +321,5 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "ROTATE_REFRESH_TOKENS": True,
 }
+CORS_ALLOW_ALL_ORIGINS = True
+
