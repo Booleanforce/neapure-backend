@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-
+from django.utils import timezone
 from apps.accounts.models import User
 from shared.constants.roles import UserRole
 from apps.customers.models import CustomerProfile, CustomerAddress, CustomerNote, CustomerHistory
@@ -26,7 +26,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        queryset = User.objects.filter(role=UserRole.CUSTOMER).select_related("customer_profile").prefetch_related("addresses", "notes", "history_logs")
+        queryset = User.objects.filter(role=UserRole.CUSTOMER, is_deleted=False).select_related("customer_profile").prefetch_related("addresses", "notes", "history_logs")
         
         if user.role == UserRole.CUSTOMER:
             return queryset.filter(id=user.id)
@@ -45,63 +45,117 @@ class CustomerViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
 
     def create(self, request, *args, **kwargs):
-        # Admin-driven customer registration
         data = request.data.copy()
         data["role"] = UserRole.CUSTOMER
-        
+
+        profile_data = data.pop("customer_profile", {})
+        addresses = data.pop("addresses", [])
+
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        
+
         user = AccountService.create_user(serializer.validated_data)
-        
-        # Log History
+
+        profile, _ = CustomerProfile.objects.get_or_create(user=user)
+
+        profile.alternate_phone = profile_data.get(
+            "alternate_phone",
+            ""
+        )
+
+        profile.status = profile_data.get(
+            "status",
+            "NEW"
+        )
+
+        profile.registered_by = request.user
+
+        profile.save()
+
+        for address in addresses:
+            CustomerAddress.objects.create(
+                customer=user,
+                **address,
+            )
+
         CustomerHistory.objects.create(
             customer=user,
             event_type="Registration",
             description=f"Customer registered by {request.user.email}.",
-            performed_by=request.user
+            performed_by=request.user,
         )
-        
-        # Link customer to the dealer or admin who registered them
-        profile = user.customer_profile
-        profile.registered_by = request.user
-        profile.save(update_fields=["registered_by"])
 
-        return Response(CustomerSerializer(user).data, status=status.HTTP_201_CREATED)
+        return Response(
+            CustomerSerializer(user).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
+        partial = kwargs.pop("partial", False)
+
         instance = self.get_object()
-        
-        # User update
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=partial,
+        )
+
         serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
 
-        # Profile update
-        profile = instance.customer_profile
+        old_status = None
+        new_status = None
+
+        # Existing status
+        if hasattr(instance, "customer_profile"):
+            old_status = instance.customer_profile.status
+
         profile_data = request.data.get("customer_profile", {})
-        
-        if profile_data:
-            if "alternate_phone" in profile_data:
-                profile.alternate_phone = profile_data["alternate_phone"]
-            
-            if "status" in profile_data and request.user.role in [UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN]:
-                old_status = profile.status
-                new_status = profile_data["status"]
-                
-                if old_status != new_status:
-                    profile.status = new_status
-                    CustomerHistory.objects.create(
-                        customer=instance,
-                        event_type="Status Change",
-                        description=f"Status changed from {old_status} to {new_status}.",
-                        performed_by=request.user
-                    )
-                    
-            profile.save()
 
-        return Response(self.get_serializer(instance).data)
+        if profile_data:
+            new_status = profile_data.get("status")
+
+        # Serializer updates:
+        # - User
+        # - CustomerProfile
+        # - CustomerAddress
+        serializer.save()
+
+        # Create history if status changed
+        if (
+            old_status
+            and new_status
+            and old_status != new_status
+        ):
+            CustomerHistory.objects.create(
+                customer=instance,
+                event_type="Status Change",
+                description=f"Status changed from {old_status} to {new_status}.",
+                performed_by=request.user,
+            )
+        addresses = request.data.get("addresses", [])
+
+        if addresses:
+
+            address_data = addresses[0]
+
+            address, created = CustomerAddress.objects.get_or_create(
+                customer=instance,
+                is_default=True,
+                defaults=address_data,
+            )
+
+            if not created:
+
+                for key, value in address_data.items():
+                    setattr(address, key, value)
+
+                address.save()
+
+        return Response(
+            self.get_serializer(instance).data,
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=["post"])
     def address(self, request, pk=None):
@@ -135,3 +189,33 @@ class CustomerViewSet(viewsets.ModelViewSet):
         serializer.save(customer=customer, author=request.user)
         
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    
+
+
+    def destroy(self, request, *args, **kwargs):
+        customer = self.get_object()
+
+        CustomerHistory.objects.create(
+            customer=customer,
+            event_type="Deleted",
+            description=f"Customer deleted by {request.user.email}.",
+            performed_by=request.user,
+        )
+
+        customer.is_deleted = True
+        customer.deleted_at = timezone.now()
+        customer.is_active = False
+
+        customer.save(
+            update_fields=[
+                "is_deleted",
+                "deleted_at",
+                "is_active",
+            ]
+        )
+
+        return Response(
+            {"message": "Customer deleted successfully."},
+            status=status.HTTP_200_OK,
+        )

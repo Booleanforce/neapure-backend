@@ -45,7 +45,7 @@ class User(
         max_length=255,
         unique=True,
         blank=True,
-        default=""
+        null=True,
 )
 
     role = models.CharField(
