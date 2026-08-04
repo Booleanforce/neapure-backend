@@ -70,6 +70,8 @@ INSTALLED_APPS = [
     "apps.dealers",
     "apps.products",
     "apps.installations",
+    "apps.technicians",
+    "apps.notifications",
 
 ]
 

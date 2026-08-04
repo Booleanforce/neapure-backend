@@ -7,6 +7,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from shared.constants.roles import UserRole
 from apps.products.models import Product, RegisteredProduct
 from apps.products.api.serializers import ProductSerializer, RegisteredProductSerializer
+from apps.accounts.permissions import IsSuperAdmin
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -14,7 +15,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Product.objects.filter(is_active=True)
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ["name", "sku"]
     ordering_fields = ["name"]
