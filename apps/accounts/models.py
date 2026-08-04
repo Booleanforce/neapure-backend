@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
+import uuid
 
 from shared.mixins.base import BaseModel
 from shared.mixins.uuid import UUIDMixin
@@ -17,6 +18,11 @@ class User(
     SoftDeleteModel,
     BaseModel,
 ):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
 
     email = models.EmailField(
         unique=True

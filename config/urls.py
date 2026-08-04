@@ -23,6 +23,11 @@ urlpatterns = [
 
     # Installations
     path("api/installations/", include("apps.installations.api.urls")),
+    # Products
+    path("api/products/", include("apps.products.urls")),
+
+    # Registrations
+    path("api/registrations/", include("apps.product_registrations.urls")),
 
     # Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
