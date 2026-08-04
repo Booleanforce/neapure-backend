@@ -1,5 +1,4 @@
 from rest_framework import serializers
-<<<<<<< HEAD
 from apps.products.models import Product, RegisteredProduct
 from apps.accounts.api.serializers import UserSerializer
 
@@ -20,7 +19,7 @@ class RegisteredProductSerializer(serializers.ModelSerializer):
             "created_at", "updated_at"
         )
         read_only_fields = ("dealer",)
-=======
+# 
 
 from apps.products.models import Category, Product, ProductImage
 
@@ -271,4 +270,4 @@ class ProductImageUploadRequestSerializer(serializers.Serializer):
     image = serializers.ImageField(required=True)
     alt_text = serializers.CharField(required=False, allow_blank=True)
     is_primary = serializers.BooleanField(required=False, default=False)
->>>>>>> origin/syed
+

@@ -68,7 +68,6 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.customers",
     "apps.dealers",
-    "apps.products",
     "apps.installations",
     "apps.products",
     "apps.product_registrations",

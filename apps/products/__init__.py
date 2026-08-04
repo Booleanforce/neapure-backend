@@ -1,5 +1,0 @@
-<<<<<<< HEAD
-# init
-=======
-
->>>>>>> origin/syed
