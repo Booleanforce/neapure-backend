@@ -33,10 +33,10 @@ SECRET_KEY = config("SECRET_KEY")
 
 DEBUG = config("DEBUG", default=False, cast=bool)
 
-ALLOWED_HOSTS = ALLOWED_HOSTS = [
+ALLOWED_HOSTS = [
+    ".vercel.app",
     "localhost",
     "127.0.0.1",
-    "nea-pure.vercel.app",
 ]
 
 # -------------------------------------------------
@@ -341,3 +341,7 @@ SIMPLE_JWT = {
 }
 CORS_ALLOW_ALL_ORIGINS = True
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://nea-pure.vercel.app",
+    "https://neapure-backend-eta.vercel.app",
+]
