@@ -23,3 +23,18 @@ class InstallationRequest(SoftDeleteModel, BaseModel):
 
     def __str__(self):
         return f"Install Req {self.id} - {self.status}"
+
+class ReplacementKitRequest(SoftDeleteModel, BaseModel):
+    registered_product = models.ForeignKey(RegisteredProduct, on_delete=models.CASCADE, related_name="replacement_kit_requests")
+    dealer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="submitted_kit_requests")
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="replacement_kit_requests")
+    description = models.TextField(help_text="Reason for replacement kit.")
+    status = models.CharField(max_length=20, choices=InstallationStatus.choices, default=InstallationStatus.PENDING)
+    admin_notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = "replacement_kit_requests"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Kit Req {self.id} - {self.status}"

@@ -8,7 +8,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from shared.constants.roles import UserRole
 from apps.installations.models import InstallationRequest, InstallationStatus
 from apps.installations.api.serializers import InstallationRequestSerializer
-from apps.accounts.permissions import IsAdminUser
+from apps.accounts.permissions import IsSuperAdmin
 
 class InstallationRequestViewSet(viewsets.ModelViewSet):
     """
@@ -30,8 +30,10 @@ class InstallationRequestViewSet(viewsets.ModelViewSet):
             return queryset.filter(dealer=user)
         elif user.role == UserRole.CUSTOMER:
             return queryset.filter(customer=user)
+        elif user.role in [UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN]:
+            return queryset
             
-        return queryset
+        return queryset.none()
 
     def create(self, request, *args, **kwargs):
         # Customers cannot request directly
@@ -53,7 +55,7 @@ class InstallationRequestViewSet(viewsets.ModelViewSet):
             return Response({"error": "Dealers cannot modify installation requests."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsAdminUser])
+    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsSuperAdmin])
     def approve(self, request, pk=None):
         instance = self.get_object()
         instance.status = InstallationStatus.APPROVED
@@ -65,7 +67,7 @@ class InstallationRequestViewSet(viewsets.ModelViewSet):
         instance.save(update_fields=["status", "admin_notes"])
         return Response(self.get_serializer(instance).data)
 
-    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsAdminUser])
+    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsSuperAdmin])
     def reject(self, request, pk=None):
         instance = self.get_object()
         instance.status = InstallationStatus.REJECTED
@@ -74,5 +76,73 @@ class InstallationRequestViewSet(viewsets.ModelViewSet):
         if admin_notes:
             instance.admin_notes = admin_notes
             
+        instance.save(update_fields=["status", "admin_notes"])
+        return Response(self.get_serializer(instance).data)
+
+from apps.installations.models import ReplacementKitRequest
+from apps.installations.api.serializers import ReplacementKitRequestSerializer
+
+class ReplacementKitRequestViewSet(viewsets.ModelViewSet):
+    """
+    API for Dealers to request replacement kits, and Admins to manage them.
+    """
+    serializer_class = ReplacementKitRequestSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ["registered_product__serial_number", "customer__email", "description"]
+    ordering_fields = ["created_at"]
+    ordering = ["-created_at"]
+    filterset_fields = ["status"]
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = ReplacementKitRequest.objects.select_related("registered_product", "dealer", "customer")
+        
+        if user.role == UserRole.DEALER:
+            return queryset.filter(dealer=user)
+        elif user.role == UserRole.CUSTOMER:
+            return queryset.filter(customer=user)
+        elif user.role in [UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN]:
+            return queryset
+            
+        return queryset.none()
+
+    def create(self, request, *args, **kwargs):
+        if request.user.role == UserRole.CUSTOMER:
+            return Response({"error": "Customers cannot request replacement kits directly."}, status=status.HTTP_403_FORBIDDEN)
+            
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        dealer = request.user if request.user.role == UserRole.DEALER else None
+        
+        serializer.save(
+            dealer=dealer,
+            status=InstallationStatus.PENDING
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        if request.user.role == UserRole.DEALER:
+            return Response({"error": "Dealers cannot modify replacement kit requests."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsSuperAdmin])
+    def approve(self, request, pk=None):
+        instance = self.get_object()
+        instance.status = InstallationStatus.APPROVED
+        admin_notes = request.data.get("admin_notes", "")
+        if admin_notes:
+            instance.admin_notes = admin_notes
+        instance.save(update_fields=["status", "admin_notes"])
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=["patch"], permission_classes=[IsAuthenticated, IsSuperAdmin])
+    def reject(self, request, pk=None):
+        instance = self.get_object()
+        instance.status = InstallationStatus.REJECTED
+        admin_notes = request.data.get("admin_notes", "")
+        if admin_notes:
+            instance.admin_notes = admin_notes
         instance.save(update_fields=["status", "admin_notes"])
         return Response(self.get_serializer(instance).data)

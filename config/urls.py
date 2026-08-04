@@ -35,6 +35,12 @@ urlpatterns = [
     # Service Bookings
     path("api/", include("apps.service_bookings.urls")),
 
+    # Technicians
+    path("api/technicians/", include("apps.technicians.api.urls")),
+
+    # Notifications
+    path("api/notifications/", include("apps.notifications.api.urls")),
+
     # Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
 

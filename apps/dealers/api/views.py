@@ -8,7 +8,7 @@ from apps.accounts.models import User
 from shared.constants.roles import UserRole
 from apps.dealers.models import DealerProfile
 from apps.dealers.api.serializers import DealerSerializer
-from apps.accounts.permissions import IsAdminUser
+from apps.accounts.permissions import IsSuperAdmin, IsDealer
 from apps.accounts.services.account_service import AccountService
 
 from rest_framework import viewsets, status
@@ -34,30 +34,10 @@ class AdminDealerViewSet(viewsets.ModelViewSet):
     """
 
     serializer_class = DealerSerializer
-    permission_classes = [
-        IsAuthenticated,
-        IsAdminUser,
-    ]
-
-    filter_backends = [
-        DjangoFilterBackend,
-        SearchFilter,
-        OrderingFilter,
-    ]
-
-    search_fields = [
-        "email",
-        "full_name",
-        "phone",
-        "dealer_profile__company_name",
-    ]
-
-    ordering_fields = [
-        "created_at",
-        "email",
-        "full_name",
-    ]
-
+    permission_classes = [IsAuthenticated, IsSuperAdmin]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ["email", "full_name", "phone", "dealer_profile__company_name"]
+    ordering_fields = ["created_at", "email", "full_name"]
     ordering = ["-created_at"]
 
     filterset_fields = [
@@ -77,6 +57,26 @@ class AdminDealerViewSet(viewsets.ModelViewSet):
     # ---------------------------------------------------------
 
     def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+        data["role"] = UserRole.DEALER
+        
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Inject password from request data since it's not in the serializer fields
+        validated_data = serializer.validated_data.copy()
+        validated_data["password"] = request.data.get("password", "")
+        validated_data["role"] = UserRole.DEALER
+        
+        # Prevent unique constraint violation on firebase_uid
+        import uuid
+        if not validated_data.get("firebase_uid"):
+            validated_data["firebase_uid"] = f"pending_{uuid.uuid4()}"
+        
+        # Pop nested profile data so User.objects.create_user doesn't fail
+        validated_data.pop("dealer_profile", None)
+        
+        user = AccountService.create_user(validated_data)
 
         data = request.data.copy()
 
