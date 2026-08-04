@@ -34,7 +34,16 @@ class AdminDealerViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         
-        user = AccountService.create_user(serializer.validated_data)
+        # Inject password from request data since it's not in the serializer fields
+        validated_data = serializer.validated_data.copy()
+        validated_data["password"] = request.data.get("password", "")
+        
+        # Prevent unique constraint violation on firebase_uid
+        import uuid
+        if not validated_data.get("firebase_uid"):
+            validated_data["firebase_uid"] = f"pending_{uuid.uuid4()}"
+        
+        user = AccountService.create_user(validated_data)
 
         # Profile fields
         profile_data = request.data.get("dealer_profile", {})
@@ -59,18 +68,19 @@ class AdminDealerViewSet(viewsets.ModelViewSet):
         self.perform_update(serializer)
 
         # Profile update
-        profile = instance.dealer_profile
-        profile_data = request.data.get("dealer_profile", {})
-        if profile_data:
-            if "company_name" in profile_data:
-                profile.company_name = profile_data["company_name"]
-            if "contact_person" in profile_data:
-                profile.contact_person = profile_data["contact_person"]
-            if "trade_license" in profile_data:
-                profile.trade_license = profile_data["trade_license"]
-            if "status" in profile_data:
-                profile.status = profile_data["status"]
-            profile.save()
+        if hasattr(instance, 'dealer_profile'):
+            profile = instance.dealer_profile
+            profile_data = request.data.get("dealer_profile", {})
+            if profile_data:
+                if "company_name" in profile_data:
+                    profile.company_name = profile_data["company_name"]
+                if "contact_person" in profile_data:
+                    profile.contact_person = profile_data["contact_person"]
+                if "trade_license" in profile_data:
+                    profile.trade_license = profile_data["trade_license"]
+                if "status" in profile_data:
+                    profile.status = profile_data["status"]
+                profile.save()
 
         return Response(self.get_serializer(instance).data)
 

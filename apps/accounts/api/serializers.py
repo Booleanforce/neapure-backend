@@ -19,6 +19,8 @@ class UserSerializer(serializers.ModelSerializer):
             "photo",
             "role",
             "firebase_uid",
+            "is_active",
+            "created_at",
         )
 
     def get_photo(self, obj):
