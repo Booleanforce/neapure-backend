@@ -233,9 +233,8 @@ STORAGES = {
 # -------------------------------------------------
 
 CORS_ALLOWED_ORIGINS = [
-
-    config("FRONTEND_URL"),
-
+    "http://localhost:3000",
+    "https://nea-pure.vercel.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
