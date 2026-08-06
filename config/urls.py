@@ -29,6 +29,12 @@ urlpatterns = [
     # Registrations
     path("api/registrations/", include("apps.product_registrations.urls")),
 
+    # AI Assistant
+    path("api/ai/", include("apps.ai_assistant.urls")),
+
+    # Service Bookings
+    path("api/", include("apps.service_bookings.urls")),
+
     # Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
 
