@@ -71,6 +71,8 @@ INSTALLED_APPS = [
     "apps.installations",
     "apps.products",
     "apps.product_registrations",
+    "apps.ai_assistant",
+    "apps.service_bookings",
 
 ]
 
