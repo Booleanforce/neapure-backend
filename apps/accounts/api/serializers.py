@@ -29,6 +29,17 @@ class UserSerializer(serializers.ModelSerializer):
         return None
 
 
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = User
+        fields = (
+            "full_name",
+            "phone",
+            "photo",
+        )
+
+
 class RegisterSerializer(serializers.ModelSerializer):
 
     password = serializers.CharField(
@@ -60,6 +71,30 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class PasswordSetupSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        from django.utils.http import urlsafe_base64_decode
+        from django.utils.encoding import force_str
+        from django.contrib.auth.tokens import PasswordResetTokenGenerator
+        from apps.accounts.models import User
+
+        try:
+            uid = force_str(urlsafe_base64_decode(attrs.get("uid")))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            raise serializers.ValidationError("Invalid user identifier.")
+
+        if not PasswordResetTokenGenerator().check_token(user, attrs.get("token")):
+            raise serializers.ValidationError("Invalid or expired setup token.")
+
+        attrs["user"] = user
+        return attrs
 
 
 class LoginSerializer(serializers.Serializer):

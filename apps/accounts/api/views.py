@@ -8,6 +8,7 @@ from apps.accounts.api.serializers import (
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
+    PasswordSetupSerializer,
 )
 
 from apps.accounts.services.account_service import AccountService
@@ -22,7 +23,7 @@ class AuthViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
 
-        if self.action in ["register", "login"]:
+        if self.action in ["register", "login", "setup_password"]:
             return [AllowAny()]
 
         return [IsAuthenticated()]
@@ -34,6 +35,9 @@ class AuthViewSet(viewsets.ModelViewSet):
 
         if self.action == "login":
             return LoginSerializer
+
+        if self.action == "setup_password":
+            return PasswordSetupSerializer
 
         return UserSerializer
 
@@ -116,6 +120,36 @@ class AuthViewSet(viewsets.ModelViewSet):
         return Response(
             {
                 "message": "Logout successful",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="setup-password",
+        authentication_classes=[],
+        permission_classes=[AllowAny],
+    )
+    def setup_password(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data["user"]
+        password = serializer.validated_data["password"]
+
+        user.set_password(password)
+        user.save()
+
+        # Log the user in after setting the password
+        data = AuthService.generate_tokens(user)
+
+        return Response(
+            {
+                "message": "Password setup successful",
+                "access": data["access"],
+                "refresh": data["refresh"],
+                "user": UserSerializer(user).data,
             },
             status=status.HTTP_200_OK,
         )

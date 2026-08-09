@@ -1,1 +1,2 @@
 python manage.py test_notifications
+python manage.py trigger_daily_notifications
