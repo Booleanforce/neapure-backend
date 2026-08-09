@@ -13,7 +13,7 @@ from apps.customers.api.serializers import (
     CustomerAddressSerializer,
     CustomerNoteSerializer
 )
-from apps.accounts.permissions import IsAdminUser, IsDealer, IsCustomer
+from apps.accounts.permissions import IsSuperAdmin, IsDealer, IsCustomer
 from apps.accounts.services.account_service import AccountService
 
 class CustomerViewSet(viewsets.ModelViewSet):
@@ -38,7 +38,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "create"]:
             # Admin & Dealer driven CRM - Customers do not list or create
-            permission_classes = [IsAuthenticated, IsAdminUser | IsDealer]
+            permission_classes = [IsAuthenticated, IsSuperAdmin | IsDealer]
         else:
             permission_classes = [IsAuthenticated]
         

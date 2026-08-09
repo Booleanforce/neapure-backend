@@ -1,8 +1,14 @@
 from rest_framework import serializers
-from apps.installations.models import InstallationRequest
+from apps.installations.models import InstallationRequest, ReplacementKitRequest
 
 class InstallationRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = InstallationRequest
-        fields = ("id", "registered_product", "dealer", "customer", "status", "admin_notes", "created_at", "updated_at")
-        read_only_fields = ("status", "dealer", "admin_notes")
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at", "status", "admin_notes", "dealer"]
+
+class ReplacementKitRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReplacementKitRequest
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at", "status", "admin_notes", "dealer"]

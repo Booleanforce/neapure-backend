@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
-
+from django.conf import settings
+from django.conf.urls.static import static
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -35,6 +36,12 @@ urlpatterns = [
     # Service Bookings
     path("api/", include("apps.service_bookings.urls")),
 
+    # Technicians
+    path("api/technicians/", include("apps.technicians.api.urls")),
+
+    # Notifications
+    path("api/notifications/", include("apps.notifications.api.urls")),
+
     # Swagger
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
 
@@ -50,3 +57,14 @@ urlpatterns = [
         name="redoc",
     ),
 ]
+
+
+# ============================================================
+# MEDIA FILES - DEVELOPMENT ONLY
+# ============================================================
+
+if settings.DEBUG:
+    urlpatterns += static(
+        settings.MEDIA_URL,
+        document_root=settings.MEDIA_ROOT,
+    )
