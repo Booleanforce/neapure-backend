@@ -37,7 +37,12 @@ class TechnicianProfile(SoftDeleteModel, BaseModel):
         choices=TechnicianStatus.choices,
         default=TechnicianStatus.AVAILABLE
     )
-    
+    profile_photo = models.ImageField(
+        upload_to="technicians/profile/",
+        blank=True,
+        null=True,
+    )
+        
     class Meta:
         db_table = "technician_profiles"
         ordering = ["-created_at"]

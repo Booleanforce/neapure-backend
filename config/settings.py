@@ -69,9 +69,12 @@ INSTALLED_APPS = [
     "apps.customers",
     "apps.dealers",
     "apps.products",
+    "apps.product_registrations",
     "apps.installations",
     "apps.technicians",
     "apps.notifications",
+    "apps.ai_assistant",
+    "apps.service_bookings",
 
 ]
 
@@ -259,6 +262,7 @@ REST_FRAMEWORK = {
         "shared.pagination.pagination.CustomPagination",
 
     "PAGE_SIZE": 10,
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # -------------------------------------------------
