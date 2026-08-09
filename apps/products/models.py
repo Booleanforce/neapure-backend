@@ -190,9 +190,7 @@ class RegisteredProduct(SoftDeleteModel, BaseModel):
 
 
 
-
 class ProductImage(UUIDMixin, TimeStampMixin):
-
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
@@ -218,17 +216,13 @@ class ProductImage(UUIDMixin, TimeStampMixin):
     )
 
     class Meta:
-
         db_table = "product_images"
-
         ordering = ["order", "-created_at"]
 
     def __str__(self):
-
         return f"{self.product.name} - Image {self.order}"
 
     def save(self, *args, **kwargs):
-
         if self.is_primary:
             with transaction.atomic():
                 ProductImage.objects.filter(
@@ -239,6 +233,7 @@ class ProductImage(UUIDMixin, TimeStampMixin):
                 ).update(
                     is_primary=False,
                 )
+
                 super().save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)

@@ -116,10 +116,6 @@ class CategorySerializer(serializers.ModelSerializer):
 # ============================================================================
 
 class ProductImageSerializer(serializers.ModelSerializer):
-    """
-    Serializer for product images.
-    """
-
     image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -145,18 +141,20 @@ class ProductImageSerializer(serializers.ModelSerializer):
         if not obj.image:
             return None
 
-        if not hasattr(obj.image, "url"):
+        try:
+            url = obj.image.url
+        except Exception:
+            return None
+
+        if not url:
             return None
 
         request = self.context.get("request")
 
         if request:
-            return request.build_absolute_uri(
-                obj.image.url
-            )
+            return request.build_absolute_uri(url)
 
-        return obj.image.url
-
+        return url
 
 # ============================================================================
 # Product List Serializer
