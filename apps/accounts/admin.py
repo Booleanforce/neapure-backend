@@ -24,7 +24,7 @@ class UserAdmin(admin.ModelAdmin):
     )
 
     def save_model(self, request, obj, form, change):
-        is_new = obj.pk is None
+        is_new = not change
         super().save_model(request, obj, form, change)
         if is_new:
             from apps.accounts.services.account_service import AccountService
