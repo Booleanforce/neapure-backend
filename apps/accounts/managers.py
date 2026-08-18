@@ -11,6 +11,7 @@ class UserManager(BaseUserManager):
         photo=None,
         role="CUSTOMER",
         password=None,
+        **extra_fields
     ):
 
         if not email:
@@ -24,6 +25,7 @@ class UserManager(BaseUserManager):
             phone=phone,
             photo=photo,
             role=role,
+            **extra_fields
         )
 
         if password:
@@ -58,7 +60,7 @@ class UserManager(BaseUserManager):
         )
 
         return self.create_user(
-            email,
-            password,
+            email=email,
+            password=password,
             **extra_fields
         )

@@ -1,70 +1,11 @@
-# from rest_framework import viewsets, status
-# <<<<<<< HEAD
-# from rest_framework.response import Response
-# from rest_framework.permissions import IsAuthenticated
-# from django_filters.rest_framework import DjangoFilterBackend
-# from rest_framework.filters import SearchFilter, OrderingFilter
-
-# from shared.constants.roles import UserRole
-# from apps.products.models import Product, RegisteredProduct
-# from apps.products.api.serializers import ProductSerializer, RegisteredProductSerializer
-
-# class ProductViewSet(viewsets.ReadOnlyModelViewSet):
-#     """
-#     Public catalog of products. Dealers and customers can view them.
-#     """
-#     queryset = Product.objects.filter(is_active=True)
-#     serializer_class = ProductSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [SearchFilter, OrderingFilter]
-#     search_fields = ["name", "sku"]
-#     ordering_fields = ["name"]
-#     ordering = ["name"]
-
-# class RegisteredProductViewSet(viewsets.ModelViewSet):
-#     """
-#     API for registering and viewing owned products.
-#     """
-#     serializer_class = RegisteredProductSerializer
-#     permission_classes = [IsAuthenticated]
-#     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-#     search_fields = ["serial_number", "customer__email", "product__name"]
-#     ordering_fields = ["purchase_date", "created_at"]
-#     ordering = ["-purchase_date"]
-#     filterset_fields = ["product"]
-
-#     def get_queryset(self):
-#         user = self.request.user
-#         queryset = RegisteredProduct.objects.select_related("product", "customer", "dealer")
-        
-#         if user.role == UserRole.CUSTOMER:
-#             return queryset.filter(customer=user)
-#         elif user.role == UserRole.DEALER:
-#             return queryset.filter(dealer=user)
-        
-#         # Admin gets everything
-#         return queryset
-
-#     def create(self, request, *args, **kwargs):
-#         # Only Dealers or Admins can register a product
-#         if request.user.role == UserRole.CUSTOMER:
-#             return Response({"error": "Customers cannot register products directly."}, status=status.HTTP_403_FORBIDDEN)
-            
-#         serializer = self.get_serializer(data=request.data)
-#         serializer.is_valid(raise_exception=True)
-        
-#         dealer = request.user if request.user.role == UserRole.DEALER else None
-        
-#         serializer.save(dealer=dealer)
-#         return Response(serializer.data, status=status.HTTP_201_CREATED)
-# =======
 from rest_framework import viewsets, status
+from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
-from apps.products.models import ProductImage
+from apps.products.models import Product, ProductImage
 from apps.products.api.serializers import (
     CategorySerializer,
     ProductListSerializer,
@@ -80,6 +21,10 @@ from apps.products.permissions import IsAdminOrReadOnly
 
 from shared.responses.api_response import ApiResponse
 
+
+# ============================================================
+# CATEGORY VIEWSET
+# ============================================================
 
 @extend_schema_view(
     list=extend_schema(
@@ -111,7 +56,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing product categories.
 
-    Read access is available to all authenticated users.
+    Read access is available to authenticated users.
     Write operations require Super Admin or Operations Admin role.
     """
 
@@ -121,7 +66,6 @@ class CategoryViewSet(viewsets.ModelViewSet):
     lookup_field = "slug"
 
     def retrieve(self, request, *args, **kwargs):
-
         instance = self.get_object()
         serializer = self.get_serializer(instance)
 
@@ -131,7 +75,6 @@ class CategoryViewSet(viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
-
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -143,12 +86,13 @@ class CategoryViewSet(viewsets.ModelViewSet):
         )
 
     def update(self, request, *args, **kwargs):
-
         instance = self.get_object()
+
         serializer = self.get_serializer(
             instance,
             data=request.data,
         )
+
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
@@ -158,13 +102,14 @@ class CategoryViewSet(viewsets.ModelViewSet):
         )
 
     def partial_update(self, request, *args, **kwargs):
-
         instance = self.get_object()
+
         serializer = self.get_serializer(
             instance,
             data=request.data,
             partial=True,
         )
+
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
@@ -174,14 +119,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
         )
 
     def destroy(self, request, *args, **kwargs):
-
         instance = self.get_object()
+
         instance.delete()
 
         return ApiResponse.success(
             message="Category deleted successfully.",
         )
 
+
+# ============================================================
+# PRODUCT VIEWSET
+# ============================================================
 
 @extend_schema_view(
     list=extend_schema(
@@ -224,24 +173,48 @@ class ProductViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing products.
 
-    Read access (list, retrieve, featured) is available to all
-    authenticated users. Write operations (create, update, delete,
-    upload_image) require Super Admin or Operations Admin role.
+    Read access:
+        - list
+        - retrieve
+        - featured
 
-    Products are soft-deleted — destroy marks is_deleted=True
-    rather than removing the record.
+    Write access:
+        - create
+        - update
+        - partial_update
+        - destroy
+        - upload_image
+
+    Write operations require the appropriate admin role.
+
+    Products are soft-deleted using is_deleted=True.
     """
 
     permission_classes = [IsAdminOrReadOnly]
+
     filterset_class = ProductFilter
-    search_fields = ["name", "sku", "short_description"]
+
+    search_fields = [
+        "name",
+        "sku",
+        "short_description",
+    ]
+
     lookup_field = "slug"
 
     def get_queryset(self):
+        """
+        Get products through the ProductSelector.
 
+        The selector is responsible for applying the correct
+        active/non-deleted product filtering.
+        """
         return ProductSelector.get_products()
 
     def get_serializer_class(self):
+        """
+        Use different serializers depending on the action.
+        """
 
         if self.action in ("list", "featured"):
             return ProductListSerializer
@@ -251,12 +224,13 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         return ProductCreateUpdateSerializer
 
-    # list() is NOT overridden — CustomPagination already
-    # wraps the response in ApiResponse.success().
+    # ========================================================
+    # RETRIEVE PRODUCT
+    # ========================================================
 
     def retrieve(self, request, *args, **kwargs):
-
         instance = self.get_object()
+
         serializer = ProductDetailSerializer(instance)
 
         return ApiResponse.success(
@@ -264,18 +238,23 @@ class ProductViewSet(viewsets.ModelViewSet):
             message="Product retrieved successfully.",
         )
 
-    def create(self, request, *args, **kwargs):
+    # ========================================================
+    # CREATE PRODUCT
+    # ========================================================
 
-        serializer = self.get_serializer(data=request.data)
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(
+            data=request.data
+        )
+
         if not serializer.is_valid():
-            print(serializer.errors)
             return Response(
                 serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         product = ProductService.create_product(
-            serializer.validated_data,
+            serializer.validated_data
         )
 
         return ApiResponse.success(
@@ -284,13 +263,18 @@ class ProductViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
-    def update(self, request, *args, **kwargs):
+    # ========================================================
+    # UPDATE PRODUCT
+    # ========================================================
 
+    def update(self, request, *args, **kwargs):
         instance = self.get_object()
+
         serializer = self.get_serializer(
             instance,
             data=request.data,
         )
+
         serializer.is_valid(raise_exception=True)
 
         product = ProductService.update_product(
@@ -303,14 +287,19 @@ class ProductViewSet(viewsets.ModelViewSet):
             message="Product updated successfully.",
         )
 
-    def partial_update(self, request, *args, **kwargs):
+    # ========================================================
+    # PARTIAL UPDATE PRODUCT
+    # ========================================================
 
+    def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
+
         serializer = self.get_serializer(
             instance,
             data=request.data,
             partial=True,
         )
+
         serializer.is_valid(raise_exception=True)
 
         product = ProductService.update_product(
@@ -323,7 +312,17 @@ class ProductViewSet(viewsets.ModelViewSet):
             message="Product updated successfully.",
         )
 
+    # ========================================================
+    # DELETE PRODUCT
+    # ========================================================
+
     def destroy(self, request, *args, **kwargs):
+        """
+        Soft-delete the product.
+
+        The database record is not physically deleted.
+        ProductService marks is_deleted=True.
+        """
 
         instance = self.get_object()
 
@@ -334,13 +333,20 @@ class ProductViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    # ========================================================
+    # UPLOAD PRODUCT IMAGE
+    # ========================================================
+
     @extend_schema(
         tags=["Products"],
         description=(
-            "Upload an image for a product. Accepts multipart form data "
-            "with 'image' (file, required), 'alt_text' (string, optional), "
-            "and 'is_primary' (boolean, optional — defaults to false). "
-            "Setting is_primary=true automatically unsets primary on other images."
+            "Upload an image for a product. "
+            "Accepts multipart form data with "
+            "'image' (file, required), "
+            "'alt_text' (string, optional), and "
+            "'is_primary' (boolean, optional — defaults to false). "
+            "Setting is_primary=true automatically unsets "
+            "primary on other images."
         ),
         request=ProductImageUploadRequestSerializer,
     )
@@ -350,7 +356,9 @@ class ProductViewSet(viewsets.ModelViewSet):
         parser_classes=[MultiPartParser, FormParser],
     )
     def upload_image(self, request, slug=None):
-        """Upload an image for a specific product."""
+        """
+        Upload an image for a specific product.
+        """
 
         product = self.get_object()
 
@@ -362,11 +370,20 @@ class ProductViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        alt_text = request.data.get("alt_text", "")
+        alt_text = request.data.get(
+            "alt_text",
+            "",
+        )
 
-        is_primary = str(
-            request.data.get("is_primary", "false")
-        ).lower() in ("true", "1")
+        is_primary = (
+            str(
+                request.data.get(
+                    "is_primary",
+                    "false",
+                )
+            ).lower()
+            in ("true", "1")
+        )
 
         ProductImage.objects.create(
             product=product,
@@ -383,11 +400,17 @@ class ProductViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    # ========================================================
+    # FEATURED PRODUCTS
+    # ========================================================
+
     @extend_schema(
         tags=["Products"],
         description=(
-            "List featured products (is_featured=True, status=ACTIVE). "
-            "Paginated with the same pagination as the main product list."
+            "List featured products "
+            "(is_featured=True, status=ACTIVE). "
+            "Paginated with the same pagination as the main "
+            "product list."
         ),
     )
     @action(
@@ -395,17 +418,28 @@ class ProductViewSet(viewsets.ModelViewSet):
         methods=["get"],
     )
     def featured(self, request):
-        """Retrieve all featured products."""
+        """
+        Retrieve all featured products.
+        """
 
         queryset = ProductSelector.get_featured_products()
 
         page = self.paginate_queryset(queryset)
 
         if page is not None:
-            serializer = ProductListSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            serializer = ProductListSerializer(
+                page,
+                many=True,
+            )
 
-        serializer = ProductListSerializer(queryset, many=True)
+            return self.get_paginated_response(
+                serializer.data
+            )
+
+        serializer = ProductListSerializer(
+            queryset,
+            many=True,
+        )
 
         return ApiResponse.success(
             data=serializer.data,

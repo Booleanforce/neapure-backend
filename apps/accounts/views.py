@@ -102,10 +102,27 @@ class UserViewSet(viewsets.ModelViewSet):
 
         return obj
 
-    @action(detail=False, methods=["get"])
+    @action(detail=False, methods=["get", "patch"])
     def profile(self, request):
-        serializer = self.get_serializer(request.user)
+        if request.method == "PATCH":
+            # Using the strict profile update serializer
+            from apps.accounts.api.serializers import UserProfileUpdateSerializer
+            serializer = UserProfileUpdateSerializer(
+                request.user,
+                data=request.data,
+                partial=True
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            
+            # Return full updated profile using main serializer
+            return Response(
+                UserSerializer(request.user).data,
+                status=status.HTTP_200_OK,
+            )
 
+        # GET request
+        serializer = self.get_serializer(request.user)
         return Response(
             serializer.data,
             status=status.HTTP_200_OK,

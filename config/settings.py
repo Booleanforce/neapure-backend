@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "apps.notifications",
     "apps.ai_assistant",
     "apps.service_bookings",
+
 ]
 
 
@@ -354,14 +355,7 @@ FIREBASE_CREDENTIALS = config(
     "FIREBASE_CREDENTIALS"
 )
 
-
-# ============================================================
-# EMAIL
-# ============================================================
-
-EMAIL_BACKEND = (
-    "django.core.mail.backends.smtp.EmailBackend"
-)
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 EMAIL_HOST = config("EMAIL_HOST")
 
