@@ -22,7 +22,10 @@ class NotificationViewSet(
     filterset_fields = ["is_read", "notification_type", "event_type", "priority"]
 
     def get_queryset(self):
-        return Notification.objects.filter(recipient=self.request.user)
+        return Notification.objects.filter(recipient=self.request.user, is_deleted=False)
+
+    def perform_destroy(self, instance):
+        instance.soft_delete()
 
     @action(detail=False, methods=["get"])
     def unread_count(self, request):

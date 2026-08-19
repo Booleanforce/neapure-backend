@@ -1,9 +1,10 @@
 from django.db import models
 from shared.mixins.base import BaseModel
+from shared.mixins.soft_delete import SoftDeleteModel
 from apps.accounts.models import User
 from shared.constants.notifications import NotificationType, EventType, NotificationPriority
 
-class Notification(BaseModel):
+class Notification(BaseModel, SoftDeleteModel):
     recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
     title = models.CharField(max_length=255)
     message = models.TextField()

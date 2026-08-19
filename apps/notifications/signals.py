@@ -1,4 +1,4 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import pre_save, post_save
 from django.dispatch import receiver
 from apps.installations.models import InstallationRequest, ReplacementKitRequest
 from apps.technicians.models import TechnicianJob, JobStatus
@@ -7,8 +7,19 @@ from shared.constants.roles import UserRole
 from shared.constants.notifications import EventType, NotificationPriority, NotificationType
 from apps.notifications.services import NotificationService
 
+@receiver(pre_save, sender=InstallationRequest)
+def track_installation_request_status(sender, instance, **kwargs):
+    if instance.pk:
+        try:
+            old_instance = InstallationRequest.objects.get(pk=instance.pk)
+            instance._old_status = old_instance.status
+        except InstallationRequest.DoesNotExist:
+            instance._old_status = None
+    else:
+        instance._old_status = None
+
 @receiver(post_save, sender=InstallationRequest)
-def notify_operations_admin_on_installation(sender, instance, created, **kwargs):
+def notify_on_installation_request_changes(sender, instance, created, **kwargs):
     if created:
         operations_admins = User.objects.filter(role=UserRole.OPERATIONS_ADMIN, is_active=True)
         for admin in operations_admins:
@@ -21,6 +32,33 @@ def notify_operations_admin_on_installation(sender, instance, created, **kwargs)
                 channels=[NotificationType.IN_APP, NotificationType.EMAIL],
                 link=f"/admin/installations/requests/{instance.id}"
             )
+    else:
+        # Check if we should notify about status changes using _old_status
+        old_status = getattr(instance, "_old_status", None)
+        if old_status and old_status != instance.status:
+            from apps.installations.models import InstallationStatus
+            if instance.status == InstallationStatus.APPROVED:
+                if instance.dealer:
+                    NotificationService.send(
+                        recipient=instance.dealer,
+                        title="Installation Request Approved",
+                        message=f"Your installation request for customer {instance.customer.full_name} has been approved.",
+                        event_type=EventType.GENERAL,
+                        priority=NotificationPriority.NORMAL,
+                        channels=[NotificationType.IN_APP],
+                        link=f"/dealer/installations/{instance.id}"
+                    )
+            elif instance.status == InstallationStatus.DISAPPROVED:
+                if instance.dealer:
+                    NotificationService.send(
+                        recipient=instance.dealer,
+                        title="Installation Request Disapproved",
+                        message=f"Your installation request for customer {instance.customer.full_name} was disapproved.",
+                        event_type=EventType.GENERAL,
+                        priority=NotificationPriority.HIGH,
+                        channels=[NotificationType.IN_APP],
+                        link=f"/dealer/installations/{instance.id}"
+                    )
 
 @receiver(post_save, sender=ReplacementKitRequest)
 def notify_on_replacement_kit(sender, instance, created, **kwargs):
