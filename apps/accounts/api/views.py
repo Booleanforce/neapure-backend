@@ -1,10 +1,13 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import User
 from apps.accounts.api.serializers import (
+    AvatarUploadSerializer,
+    ChangePasswordSerializer,
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
@@ -34,6 +37,12 @@ class AuthViewSet(viewsets.ModelViewSet):
 
         if self.action == "login":
             return LoginSerializer
+
+        if self.action == "avatar":
+            return AvatarUploadSerializer
+
+        if self.action == "change_password":
+            return ChangePasswordSerializer
 
         return UserSerializer
 
@@ -92,14 +101,62 @@ class AuthViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=False,
-        methods=["get"],
+        methods=["get", "patch"],
     )
     def me(self, request):
 
-        serializer = UserSerializer(request.user)
+        if request.method == "GET":
+            serializer = UserSerializer(request.user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # PATCH — partial profile update. UserSerializer already marks
+        # email/role/firebase_uid as read_only, so this can't be used
+        # to self-elevate or hijack another account's email.
+        serializer = UserSerializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=False,
+        methods=["post"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def avatar(self, request):
+
+        serializer = self.get_serializer(
+            request.user,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
 
         return Response(
-            serializer.data,
+            {"url": request.user.photo.url if request.user.photo else None},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=False,
+        methods=["post"],
+    )
+    def change_password(self, request):
+
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {"message": "Password updated."},
             status=status.HTTP_200_OK,
         )
 
