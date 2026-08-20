@@ -1,7 +1,13 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import (
+    MultiPartParser,
+    FormParser,
+)
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+)
 from rest_framework.response import Response
 
 from apps.accounts.models import User
@@ -15,14 +21,23 @@ from apps.accounts.api.serializers import (
     PasswordSetupSerializer,
 )
 
-from apps.accounts.services.account_service import AccountService
-from apps.accounts.services.auth_service import AuthService
+from apps.accounts.services.account_service import (
+    AccountService,
+)
+from apps.accounts.services.auth_service import (
+    AuthService,
+)
+
+from apps.accounts.permissions import (
+    IsSuperAdmin,
+)
 
 
 class AuthViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.none()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
     # ========================================================================
     # PERMISSIONS
@@ -34,9 +49,48 @@ class AuthViewSet(viewsets.ModelViewSet):
             "login",
             "setup_password",
         ]:
-            return [AllowAny()]
+            return [
+                AllowAny()
+            ]
 
-        return [IsAuthenticated()]
+        if self.action in [
+            "users",
+            "retrieve",
+            "destroy",
+        ]:
+            return [
+                IsAuthenticated(),
+                IsSuperAdmin(),
+            ]
+
+        return [
+            IsAuthenticated()
+        ]
+
+    # ========================================================================
+    # QUERYSET
+    # ========================================================================
+
+    def get_queryset(self):
+        """
+        Normal auth endpoints work with request.user.
+
+        Super Admin user-management actions can access
+        the complete User queryset.
+        """
+
+        if self.action in [
+            "users",
+            "retrieve",
+            "destroy",
+        ]:
+            return (
+                User.objects
+                .all()
+                .order_by("-created_at")
+            )
+
+        return User.objects.none()
 
     # ========================================================================
     # SERIALIZERS
@@ -92,9 +146,7 @@ class AuthViewSet(viewsets.ModelViewSet):
                 "message": "Registration successful",
                 "access": data["access"],
                 "refresh": data["refresh"],
-                "user": UserSerializer(
-                    user
-                ).data,
+                "user": UserSerializer(user).data,
             },
             status=status.HTTP_201_CREATED,
         )
@@ -154,11 +206,6 @@ class AuthViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK,
             )
 
-        # PATCH
-        #
-        # email, role, and firebase_uid are read-only
-        # in UserSerializer.
-
         serializer = UserSerializer(
             request.user,
             data=request.data,
@@ -177,7 +224,133 @@ class AuthViewSet(viewsets.ModelViewSet):
         )
 
     # ========================================================================
-    # AVATAR UPLOAD
+    # SUPER ADMIN - ALL USERS
+    # ========================================================================
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="users",
+    )
+    def users(self, request):
+        """
+        GET /api/auth/users/
+
+        Returns all users for Super Admin.
+        """
+
+        queryset = self.get_queryset()
+
+        serializer = UserSerializer(
+            queryset,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    # ========================================================================
+    # SUPER ADMIN - VIEW USER DETAILS
+    # ========================================================================
+    #
+    # Uses standard DRF detail route:
+    #
+    # GET /api/auth/<id>/
+    #
+    # Since get_queryset() includes retrieve and permissions
+    # require IsSuperAdmin, only Super Admin can access this.
+    #
+    # ========================================================================
+
+    def retrieve(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+        user = self.get_object()
+
+        serializer = self.get_serializer(
+            user
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    # ========================================================================
+    # SUPER ADMIN - PERMANENT DELETE
+    # ========================================================================
+    #
+    # DELETE /api/auth/<id>/
+    #
+    # This permanently removes the User record.
+    #
+    # ========================================================================
+
+    def destroy(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+        user = self.get_object()
+
+        deleted_id = str(user.id)
+        deleted_email = user.email
+        deleted_name = user.full_name
+
+        # ---------------------------------------------------------------
+        # Prevent accidental self deletion
+        # ---------------------------------------------------------------
+
+        if user.id == request.user.id:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "You cannot delete your own account."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------------------------------
+        # Delete related photo if present
+        # ---------------------------------------------------------------
+
+        if user.photo:
+            try:
+                user.photo.delete(
+                    save=False
+                )
+            except Exception:
+                pass
+
+        # ---------------------------------------------------------------
+        # Permanent deletion
+        # ---------------------------------------------------------------
+
+        user.delete()
+
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "User deleted permanently."
+                ),
+                "deleted_id": deleted_id,
+                "email": deleted_email,
+                "name": deleted_name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # ========================================================================
+    # AVATAR
     # ========================================================================
 
     @action(
@@ -302,11 +475,10 @@ class AuthViewSet(viewsets.ModelViewSet):
         )
 
         user.save(
-            update_fields=["password"]
+            update_fields=[
+                "password"
+            ]
         )
-
-        # Log the user in after setting
-        # the password.
 
         data = AuthService.generate_tokens(
             user
@@ -314,7 +486,9 @@ class AuthViewSet(viewsets.ModelViewSet):
 
         return Response(
             {
-                "message": "Password setup successful",
+                "message": (
+                    "Password setup successful"
+                ),
                 "access": data["access"],
                 "refresh": data["refresh"],
                 "user": UserSerializer(
