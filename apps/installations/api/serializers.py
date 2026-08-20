@@ -44,32 +44,88 @@ class InstallationSignatureSerializer(serializers.ModelSerializer):
         read_only_fields = ['collected_by', 'created_at']
 
 class InstallationRequestSerializer(serializers.ModelSerializer):
-    history_logs = InstallationHistorySerializer(many=True, read_only=True)
-    photos = InstallationPhotoSerializer(many=True, read_only=True)
-    checklist = InstallationChecklistSerializer(read_only=True)
-    signature = InstallationSignatureSerializer(read_only=True)
-    dealer_name = serializers.CharField(source='dealer.full_name', read_only=True)
-    customer_name = serializers.CharField(source='customer.full_name', read_only=True)
-    
+    history_logs = InstallationHistorySerializer(
+        many=True,
+        read_only=True,
+    )
+
+    photos = InstallationPhotoSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    checklist = InstallationChecklistSerializer(
+        read_only=True,
+    )
+
+    signature = InstallationSignatureSerializer(
+        read_only=True,
+    )
+
+    dealer_name = serializers.CharField(
+        source="dealer.full_name",
+        read_only=True,
+    )
+
+    customer_name = serializers.CharField(
+        source="customer.full_name",
+        read_only=True,
+    )
+
+    # Product name
+    registered_product_name = serializers.CharField(
+        source="registered_product.product.name",
+        read_only=True,
+    )
+
+    # Serial number
+    registered_product_serial = serializers.CharField(
+        source="registered_product.serial_number",
+        read_only=True,
+    )
+
     class Meta:
         model = InstallationRequest
+
         fields = [
-            'id', 
-            'registered_product', 
-            'dealer', 
-            'dealer_name',
-            'customer', 
-            'customer_name',
-            'status', 
-            'admin_notes', 
-            'created_at', 
-            'updated_at',
-            'history_logs',
-            'photos',
-            'checklist',
-            'signature'
+            "id",
+
+            "registered_product",
+            "registered_product_name",
+            "registered_product_serial",
+
+            "dealer",
+            "dealer_name",
+
+            "customer",
+            "customer_name",
+
+            "status",
+            "admin_notes",
+
+            "created_at",
+            "updated_at",
+
+            "history_logs",
+            "photos",
+            "checklist",
+            "signature",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "status", "admin_notes", "dealer", "history_logs", "photos", "checklist", "signature"]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "status",
+            "admin_notes",
+            "dealer",
+            "history_logs",
+            "photos",
+            "checklist",
+            "signature",
+            "registered_product_name",
+            "registered_product_serial",
+        ]
 
 class ReplacementKitRequestSerializer(serializers.ModelSerializer):
     class Meta:
