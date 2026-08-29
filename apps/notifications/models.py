@@ -10,6 +10,13 @@ class Notification(BaseModel):
     
     # Generic relation or simple text for link (simpler)
     link = models.CharField(max_length=255, blank=True, null=True)
+    event_type = models.CharField(max_length=50, default="SYSTEM")
+    notification_type = models.CharField(max_length=50, default="SYSTEM")
+    priority = models.CharField(max_length=20, default="NORMAL")
+    metadata = models.JSONField(blank=True, null=True)
+    read_at = models.DateTimeField(blank=True, null=True)
+    deleted_at = models.DateTimeField(blank=True, null=True)
+    is_deleted = models.BooleanField(default=False)
 
     class Meta:
         db_table = "notifications"

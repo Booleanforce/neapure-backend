@@ -52,7 +52,17 @@ class User(
         unique=True,
         blank=True,
         null=True,
-)
+    )
+
+    language = models.CharField(
+        max_length=10,
+        default="en"
+    )
+
+    location = models.CharField(
+        max_length=255,
+        default="Default Location"
+    )
 
     role = models.CharField(
         max_length=30,

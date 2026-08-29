@@ -32,6 +32,7 @@ class ServiceBooking(UUIDMixin, TimeStampMixin, SoftDeleteModel):
         null=True,
         blank=True
     )
+    product_category = models.CharField(max_length=100)
     product_model_text = models.CharField(max_length=255)
     
     service_type = models.CharField(max_length=30, choices=ServiceType.choices)
