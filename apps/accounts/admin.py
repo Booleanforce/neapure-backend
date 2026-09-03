@@ -22,3 +22,10 @@ class UserAdmin(admin.ModelAdmin):
         "is_active",
         "is_staff",
     )
+
+    def save_model(self, request, obj, form, change):
+        is_new = not change
+        super().save_model(request, obj, form, change)
+        if is_new:
+            from apps.accounts.services.account_service import AccountService
+            AccountService._send_welcome_email(obj)

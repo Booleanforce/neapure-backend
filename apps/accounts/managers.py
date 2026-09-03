@@ -63,7 +63,7 @@ class UserManager(BaseUserManager):
         )
 
         return self.create_user(
-            email,
+            email=email,
             password=password,
             **extra_fields
         )

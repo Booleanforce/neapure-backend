@@ -85,6 +85,20 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 **clean_address,
             )
 
+        
+        # Inject password from request data since it's not in the serializer fields
+        validated_data = serializer.validated_data.copy()
+        validated_data["password"] = request.data.get("password", "")
+        validated_data["role"] = UserRole.CUSTOMER
+        
+        # Prevent unique constraint violation on firebase_uid
+        import uuid
+        if not validated_data.get("firebase_uid"):
+            validated_data["firebase_uid"] = f"pending_{uuid.uuid4()}"
+        
+        user = AccountService.create_user(validated_data)
+        
+        # Log History
         CustomerHistory.objects.create(
             customer=user,
             event_type="Registration",

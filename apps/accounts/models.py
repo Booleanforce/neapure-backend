@@ -12,6 +12,11 @@ from .managers import UserManager
 from shared.constants.roles import UserRole
 
 
+class Language(models.TextChoices):
+    ENGLISH = "en", "English"
+    BANGLA = "bn", "Bangla"
+
+
 class User(
     AbstractBaseUser,
     PermissionsMixin,
@@ -40,6 +45,12 @@ class User(
         default=""
     )
 
+    location = models.CharField(
+        max_length=255,
+        blank=True,
+        default=""
+    )
+
     photo = models.ImageField(
         upload_to="users/profile/",
         blank=True,
@@ -54,20 +65,17 @@ class User(
         null=True,
     )
 
-    language = models.CharField(
-        max_length=10,
-        default="en"
-    )
-
-    location = models.CharField(
-        max_length=255,
-        default="Default Location"
-    )
 
     role = models.CharField(
         max_length=30,
         choices=UserRole.choices,
         default=UserRole.CUSTOMER,
+    )
+
+    language = models.CharField(
+        max_length=10,
+        choices=Language.choices,
+        default=Language.ENGLISH,
     )
 
     is_staff = models.BooleanField(

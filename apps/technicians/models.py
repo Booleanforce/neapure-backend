@@ -43,6 +43,7 @@ class TechnicianProfile(SoftDeleteModel, BaseModel):
         null=True,
     )
         
+    
     class Meta:
         db_table = "technician_profiles"
         ordering = ["-created_at"]

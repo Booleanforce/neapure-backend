@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 try:
     from llama_cpp import Llama
@@ -9,6 +10,13 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# neapure-backend/
+BASE_DIR = Path(__file__).resolve().parents[3]
+
+# neapure-backend/models/gemma-3-1b-it-Q4_K_M.gguf
+MODEL_PATH = BASE_DIR / "models" / "gemma-3-1b-it-Q4_K_M.gguf"
+
+
 class LLMFallbackService:
     _model = None
 
@@ -16,10 +24,7 @@ class LLMFallbackService:
     def get_model(cls):
         """
         Load the local Gemma model only when llama-cpp-python
-        is actually available.
-
-        This allows Django/Vercel to start even when llama_cpp
-        is not installed.
+        is available and the GGUF model exists.
         """
 
         # ---------------------------------------------------------
@@ -43,6 +48,24 @@ class LLMFallbackService:
             return cls._model
 
         # ---------------------------------------------------------
+        # Check model file
+        # ---------------------------------------------------------
+        logger.info(
+            "Looking for Gemma model at: %s",
+            MODEL_PATH,
+        )
+
+        if not MODEL_PATH.exists():
+            logger.error(
+                "Gemma model file not found: %s",
+                MODEL_PATH,
+            )
+
+            raise FileNotFoundError(
+                f"Gemma model not found at: {MODEL_PATH}"
+            )
+
+        # ---------------------------------------------------------
         # Load model
         # ---------------------------------------------------------
         logger.info(
@@ -51,9 +74,9 @@ class LLMFallbackService:
 
         try:
             cls._model = Llama(
-                model_path="gemma-3-1b-it-Q4_K_M.gguf",
-                n_gpu_layers=-1,
+                model_path=str(MODEL_PATH),
                 n_threads=4,
+                n_gpu_layers=0,
                 verbose=False,
             )
 
@@ -69,8 +92,6 @@ class LLMFallbackService:
                 e,
             )
 
-            # Make sure a failed model load does not leave
-            # a broken object in memory.
             cls._model = None
 
             raise

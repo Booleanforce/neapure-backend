@@ -1,15 +1,11 @@
 import json
 import uuid
 
-from django.db.models import Avg, Count, Q
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import (
-    FormParser,
-    JSONParser,
-    MultiPartParser,
-)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -17,16 +13,11 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
 from apps.accounts.models import User
-from apps.accounts.permissions import (
-    IsAdminUser,
-    IsSuperAdmin,
-    IsTechnician,
-)
-from apps.accounts.services.account_service import AccountService
+from shared.constants.roles import UserRole
 
 from apps.technicians.models import (
-    TechnicianJob,
     TechnicianProfile,
+    TechnicianJob,
 )
 
 from apps.technicians.api.serializers import (
@@ -35,182 +26,236 @@ from apps.technicians.api.serializers import (
     TechnicianPerformanceSerializer,
 )
 
-from shared.constants.roles import UserRole
+from apps.accounts.permissions import (
+    IsSuperAdmin,
+    IsAdminUser,
+    IsTechnician,
+)
+
+from apps.accounts.services.account_service import (
+    AccountService,
+)
 
 
-# ============================================================
+# ============================================================================
 # HELPERS
-# ============================================================
+# ============================================================================
+
+def normalize_string(value):
+    """
+    Safely convert API values to strings.
+    """
+
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+
+    if isinstance(value, list):
+        return ", ".join(
+            normalize_string(item)
+            for item in value
+            if item is not None
+        ).strip()
+
+    if isinstance(value, dict):
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+        )
+
+    return str(value).strip()
+
+
+def normalize_skills(value):
+    """
+    Skills can arrive as:
+
+    - string
+    - list
+    - dict
+    - None
+    """
+
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, list):
+        return ", ".join(
+            normalize_string(item)
+            for item in value
+            if item is not None
+        ).strip()
+
+    if isinstance(value, dict):
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+        )
+
+    return str(value).strip()
 
 
 def parse_profile_data(data):
     """
-    Supports both JSON and multipart/form-data.
-
-    JSON example:
-
-    {
-        "technician_profile": {
-            "region": "Dhaka",
-            "skills": "Repair",
-            "status": "ACTIVE"
-        }
-    }
-
-    FormData example:
-
-    technician_profile =
-    '{"region":"Dhaka","skills":"Repair","status":"ACTIVE"}'
-    """
-
-    profile_data = data.get(
-        "technician_profile",
-        {},
-    )
-
-    if not profile_data:
-        return {}
-
-    # Normal JSON request
-    if isinstance(profile_data, dict):
-        return profile_data
-
-    # FormData request
-    if isinstance(profile_data, str):
-        try:
-            parsed = json.loads(profile_data)
-
-            if isinstance(parsed, dict):
-                return parsed
-
-        except json.JSONDecodeError:
-            return {}
-
-    return {}
-
-
-def get_or_create_technician_profile(user):
-    """
-    Get the technician profile.
-
-    If the profile does not exist, create it.
-    """
-
-    try:
-        return user.technician_profile
-
-    except TechnicianProfile.DoesNotExist:
-        return TechnicianProfile.objects.create(
-            user=user
-        )
-
-
-def update_technician_profile(
-    user,
-    request,
-    allow_status=True,
-):
-    """
-    Update technician profile information.
-
     Supports:
 
-    - region
-    - skills
-    - status
-    - profile_photo
-    - remove_profile_photo
+    1. JSON object
+
+       {
+           "technician_profile": {
+               "region": "Dhaka",
+               "skills": "Installation",
+               "status": "ACTIVE"
+           }
+       }
+
+    2. JSON string
+
+       technician_profile='{
+           "region":"Dhaka",
+           "skills":"Installation",
+           "status":"ACTIVE"
+       }'
+
+    3. Flat multipart fields
+
+       region=Dhaka
+       skills=Installation
+       status=ACTIVE
+
+    Flat fields override nested values.
     """
 
-    profile = get_or_create_technician_profile(
-        user
+    profile_data = {}
+
+    # ------------------------------------------------------------------------
+    # Nested technician_profile
+    # ------------------------------------------------------------------------
+
+    nested = data.get(
+        "technician_profile"
     )
 
-    profile_data = parse_profile_data(
-        request.data
-    )
+    if isinstance(
+        nested,
+        dict,
+    ):
+        profile_data = nested.copy()
 
-    # --------------------------------------------------------
-    # Region
-    # --------------------------------------------------------
+    elif isinstance(
+        nested,
+        str,
+    ):
+        try:
+            parsed = json.loads(
+                nested
+            )
+
+            if isinstance(
+                parsed,
+                dict,
+            ):
+                profile_data = parsed
+
+        except (
+            json.JSONDecodeError,
+            TypeError,
+        ):
+            profile_data = {}
+
+    # ------------------------------------------------------------------------
+    # Flat values override nested values
+    # ------------------------------------------------------------------------
+
+    for field in (
+        "region",
+        "skills",
+        "status",
+    ):
+        if field in data:
+            profile_data[field] = data.get(
+                field
+            )
+
+    # ------------------------------------------------------------------------
+    # Normalize
+    # ------------------------------------------------------------------------
 
     if "region" in profile_data:
-        profile.region = profile_data[
-            "region"
-        ]
-
-    # --------------------------------------------------------
-    # Skills
-    # --------------------------------------------------------
+        profile_data["region"] = normalize_string(
+            profile_data["region"]
+        )
 
     if "skills" in profile_data:
-        profile.skills = profile_data[
-            "skills"
-        ]
+        profile_data["skills"] = normalize_skills(
+            profile_data["skills"]
+        )
 
-    # --------------------------------------------------------
-    # Status
-    # --------------------------------------------------------
+    if "status" in profile_data:
+        profile_data["status"] = (
+            normalize_string(
+                profile_data["status"]
+            ).upper()
+        )
 
-    if (
-        allow_status
-        and "status" in profile_data
-    ):
-        profile.status = profile_data[
-            "status"
-        ]
+    return profile_data
 
-    # --------------------------------------------------------
-    # Profile Photo Upload
-    # --------------------------------------------------------
 
-    profile_photo = request.FILES.get(
-        "profile_photo"
+def get_profile_photo_file(request):
+    """
+    Supports both frontend field names.
+    """
+
+    return (
+        request.FILES.get(
+            "profile_photo"
+        )
+        or request.FILES.get(
+            "photo"
+        )
     )
 
-    if profile_photo:
-        profile.profile_photo = profile_photo
 
-    # --------------------------------------------------------
-    # Remove Profile Photo
-    # --------------------------------------------------------
-
-    remove_photo = request.data.get(
-        "remove_profile_photo"
+def get_remove_photo_flag(request):
+    value = request.data.get(
+        "remove_profile_photo",
+        ""
     )
 
-    if str(remove_photo).lower() in [
-        "true",
-        "1",
-        "yes",
-    ]:
-        profile.profile_photo = None
-
-    profile.save()
-
-    return profile
+    return str(
+        value
+    ).lower() == "true"
 
 
-# ============================================================
-# ADMIN TECHNICIAN
-# ============================================================
+def serialize_technician(user):
+    """
+    Always return a fresh serializer response.
+    """
 
+    user.refresh_from_db()
+
+    return TechnicianSerializer(
+        user
+    ).data
+
+
+# ============================================================================
+# ADMIN TECHNICIAN VIEWSET
+# ============================================================================
 
 class AdminTechnicianViewSet(
     viewsets.ModelViewSet
 ):
     """
     Super Admin API for managing technicians.
-
-    Supports:
-
-    GET
-    POST
-    PUT
-    PATCH
-    DELETE
-
-    Also supports profile photo upload.
     """
 
     serializer_class = TechnicianSerializer
@@ -218,12 +263,6 @@ class AdminTechnicianViewSet(
     permission_classes = [
         IsAuthenticated,
         IsSuperAdmin,
-    ]
-
-    parser_classes = [
-        JSONParser,
-        MultiPartParser,
-        FormParser,
     ]
 
     filter_backends = [
@@ -255,9 +294,9 @@ class AdminTechnicianViewSet(
         "technician_profile__region",
     ]
 
-    # ========================================================
+    # ========================================================================
     # QUERYSET
-    # ========================================================
+    # ========================================================================
 
     def get_queryset(self):
         return (
@@ -270,279 +309,299 @@ class AdminTechnicianViewSet(
             )
         )
 
-    # ========================================================
-    # CREATE TECHNICIAN
-    # ========================================================
+    # ========================================================================
+    # CREATE
+    # ========================================================================
 
+    @transaction.atomic
     def create(
         self,
         request,
         *args,
         **kwargs,
     ):
-        """
-        Create a technician.
-
-        Supports:
-        - JSON
-        - multipart/form-data
-        - profile photo
-        """
-
-        # --------------------------------------------------------
-        # Profile data
-        # --------------------------------------------------------
-
-        profile_data = parse_profile_data(
-            request.data
-        )
-
-        profile_photo = request.FILES.get(
-            "profile_photo"
-        )
-
-        # --------------------------------------------------------
-        # User data
-        # --------------------------------------------------------
-
-        data = request.data.copy()
-
-        # These belong to TechnicianProfile
-        data.pop(
-            "technician_profile",
-            None,
-        )
-
-        data.pop(
-            "profile_photo",
-            None,
-        )
-
-        data.pop(
-            "remove_profile_photo",
-            None,
-        )
-
-        # --------------------------------------------------------
-        # Force technician role
-        # --------------------------------------------------------
-
-        data["role"] = UserRole.TECHNICIAN
-
-        # --------------------------------------------------------
-        # Validate
-        # --------------------------------------------------------
-
-        serializer = self.get_serializer(
-            data=data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        validated_data = (
-            serializer.validated_data.copy()
-        )
-
-        # ========================================================
-        # VERY IMPORTANT
-        # ========================================================
-        #
-        # Your UserManager.create_user() does NOT accept:
-        #
-        # firebase_uid
-        # is_active
-        #
-        # Therefore remove BOTH before AccountService.
-        # ========================================================
-
-        is_active = validated_data.pop(
-            "is_active",
-            True,
-        )
-
-        validated_data.pop(
-            "firebase_uid",
-            None,
-        )
-
-        # --------------------------------------------------------
-        # Password
-        # --------------------------------------------------------
-
-        password = request.data.get(
-            "password",
-            ""
-        )
-
-        if not password:
-            return Response(
-                {
-                    "password": [
-                        "Password is required."
-                    ]
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+        try:
+            print(
+                "========================================"
+            )
+            print(
+                "===== CREATE TECHNICIAN ====="
+            )
+            print(
+                "Content-Type:",
+                request.content_type,
+            )
+            print(
+                "Request data:",
+                request.data,
+            )
+            print(
+                "Request files:",
+                request.FILES,
+            )
+            print(
+                "========================================"
             )
 
-        # --------------------------------------------------------
-        # Force role
-        # --------------------------------------------------------
+            # ----------------------------------------------------------------
+            # BASIC USER DATA
+            # ----------------------------------------------------------------
 
-        validated_data["role"] = (
-            UserRole.TECHNICIAN
-        )
+            email = normalize_string(
+                request.data.get(
+                    "email"
+                )
+            )
 
-        # --------------------------------------------------------
-        # Password
-        # --------------------------------------------------------
+            full_name = normalize_string(
+                request.data.get(
+                    "full_name"
+                )
+            )
 
-        validated_data["password"] = password
+            phone = normalize_string(
+                request.data.get(
+                    "phone"
+                )
+            )
 
-        # ========================================================
-        # DEBUG
-        # ========================================================
-        #
-        # Temporarily keep this.
-        # It lets you confirm firebase_uid is NOT being sent.
-        # ========================================================
+            password = (
+                request.data.get(
+                    "password"
+                )
+                or ""
+            )
 
-        print(
-            "CREATE USER DATA:",
-            validated_data
-        )
+            if not email:
+                return Response(
+                    {
+                        "detail":
+                            "Email is required."
+                    },
+                    status=
+                    status.HTTP_400_BAD_REQUEST,
+                )
 
-        # ========================================================
-        # CREATE USER
-        # ========================================================
+            if not full_name:
+                return Response(
+                    {
+                        "detail":
+                            "Full name is required."
+                    },
+                    status=
+                    status.HTTP_400_BAD_REQUEST,
+                )
 
-        user = AccountService.create_user(
-            validated_data
-        )
+            if not password:
+                return Response(
+                    {
+                        "detail":
+                            "Password is required."
+                    },
+                    status=
+                    status.HTTP_400_BAD_REQUEST,
+                )
 
-        # --------------------------------------------------------
-        # is_active
-        # --------------------------------------------------------
+            # ----------------------------------------------------------------
+            # DUPLICATE EMAIL
+            # ----------------------------------------------------------------
 
-        user.is_active = is_active
+            if User.objects.filter(
+                email__iexact=email
+            ).exists():
+                return Response(
+                    {
+                        "detail":
+                            "A user with this email already exists."
+                    },
+                    status=
+                    status.HTTP_400_BAD_REQUEST,
+                )
 
-        user.save(
-            update_fields=[
-                "is_active"
-            ]
-        )
+            # ----------------------------------------------------------------
+            # PROFILE
+            # ----------------------------------------------------------------
 
-        # --------------------------------------------------------
-        # Firebase UID
-        #
-        # Set AFTER create_user().
-        # --------------------------------------------------------
+            profile_data = parse_profile_data(
+                request.data
+            )
 
-        if hasattr(
-            user,
-            "firebase_uid"
-        ):
-            if not user.firebase_uid:
+            region = normalize_string(
+                profile_data.get(
+                    "region"
+                )
+            )
 
-                import uuid
+            skills = normalize_skills(
+                profile_data.get(
+                    "skills"
+                )
+            )
 
-                user.firebase_uid = (
-                    f"pending_{uuid.uuid4()}"
+            profile_status = (
+                normalize_string(
+                    profile_data.get(
+                        "status"
+                    )
+                    or "ACTIVE"
+                ).upper()
+            )
+
+            if profile_status not in {
+                "ACTIVE",
+                "BLOCKED",
+            }:
+                profile_status = "ACTIVE"
+
+            # ----------------------------------------------------------------
+            # CREATE USER
+            # ----------------------------------------------------------------
+
+            user_data = {
+                "email": email,
+                "full_name": full_name,
+                "phone": phone,
+                "password": password,
+                "role": UserRole.TECHNICIAN,
+                "firebase_uid":
+                    f"pending_{uuid.uuid4()}",
+                "is_active": True,
+            }
+
+            print(
+                "User data:",
+                {
+                    key: (
+                        "***"
+                        if key == "password"
+                        else value
+                    )
+                    for key, value
+                    in user_data.items()
+                }
+            )
+
+            user = (
+                AccountService.create_user(
+                    user_data
+                )
+            )
+
+            # Make absolutely sure a technician can log in.
+            if not user.is_active:
+                user.is_active = True
+
+                user.save(
+                    update_fields=[
+                        "is_active"
+                    ]
+                )
+
+            # Make sure the role is correct.
+            if (
+                user.role
+                != UserRole.TECHNICIAN
+            ):
+                user.role = (
+                    UserRole.TECHNICIAN
                 )
 
                 user.save(
                     update_fields=[
-                        "firebase_uid"
+                        "role"
                     ]
                 )
 
-        # --------------------------------------------------------
-        # Technician profile
-        # --------------------------------------------------------
+            # ----------------------------------------------------------------
+            # PROFILE
+            # ----------------------------------------------------------------
 
-        profile = (
-            get_or_create_technician_profile(
-                user
-            )
-        )
-
-        # --------------------------------------------------------
-        # Region
-        # --------------------------------------------------------
-
-        if "region" in profile_data:
-            profile.region = (
-                profile_data["region"]
+            profile, _ = (
+                TechnicianProfile.objects.get_or_create(
+                    user=user
+                )
             )
 
-        # --------------------------------------------------------
-        # Skills
-        # --------------------------------------------------------
+            profile.region = region
+            profile.skills = skills
+            profile.status = profile_status
 
-        if "skills" in profile_data:
-            profile.skills = (
-                profile_data["skills"]
+            # ----------------------------------------------------------------
+            # PHOTO
+            # ----------------------------------------------------------------
+
+            photo_file = (
+                get_profile_photo_file(
+                    request
+                )
             )
 
-        # --------------------------------------------------------
-        # Status
-        # --------------------------------------------------------
+            if photo_file:
+                profile.profile_photo = (
+                    photo_file
+                )
 
-        if "status" in profile_data:
-            profile.status = (
-                profile_data["status"]
+            profile.save()
+
+            # ----------------------------------------------------------------
+            # RESPONSE
+            # ----------------------------------------------------------------
+
+            print(
+                "Technician created:",
+                user.id,
+                user.email,
+                "is_active:",
+                user.is_active,
             )
 
-        # --------------------------------------------------------
-        # Profile photo
-        # --------------------------------------------------------
-
-        if profile_photo:
-            profile.profile_photo = (
-                profile_photo
+            return Response(
+                serialize_technician(
+                    user
+                ),
+                status=
+                status.HTTP_201_CREATED,
             )
 
-        profile.save()
+        except Exception as exc:
+            import traceback
 
-        # --------------------------------------------------------
-        # Refresh
-        # --------------------------------------------------------
+            print(
+                "========================================"
+            )
+            print(
+                "TECHNICIAN CREATE ERROR"
+            )
+            print(
+                str(exc)
+            )
+            traceback.print_exc()
+            print(
+                "========================================"
+            )
 
-        user.refresh_from_db()
+            return Response(
+                {
+                    "detail":
+                        str(exc),
+                    "error":
+                        "Technician creation failed.",
+                },
+                status=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        # --------------------------------------------------------
-        # Response
-        # --------------------------------------------------------
+    # ========================================================================
+    # UPDATE
+    # ========================================================================
 
-        return Response(
-            TechnicianSerializer(
-                user
-            ).data,
-            status=status.HTTP_201_CREATED,
-        )
-    # ========================================================
-    # UPDATE TECHNICIAN
-    # ========================================================
-
+    @transaction.atomic
     def update(
         self,
         request,
         *args,
         **kwargs,
     ):
-        """
-        Update technician.
-
-        Supports:
-
-        - User information
-        - is_active
-        - password
-        - technician profile
-        - profile photo
-        """
-
         partial = kwargs.pop(
             "partial",
             False,
@@ -550,134 +609,334 @@ class AdminTechnicianViewSet(
 
         instance = self.get_object()
 
-        # ----------------------------------------------------
-        # Copy request data
-        # ----------------------------------------------------
+        print(
+            "========================================"
+        )
+        print(
+            "===== UPDATE TECHNICIAN ====="
+        )
+        print(
+            "Technician:",
+            instance.id,
+        )
+        print(
+            "Request data:",
+            request.data,
+        )
+        print(
+            "Request files:",
+            request.FILES,
+        )
+        print(
+            "========================================"
+        )
 
-        user_data = request.data.copy()
+        # ----------------------------------------------------------------
+        # Parse profile data
+        # ----------------------------------------------------------------
 
-        # ----------------------------------------------------
-        # Remove profile-specific fields
-        # ----------------------------------------------------
+        profile_data = parse_profile_data(
+            request.data
+        )
 
-        user_data.pop(
+        # ----------------------------------------------------------------
+        # USER SERIALIZER DATA
+        #
+        # technician_profile MUST NOT be passed
+        # into TechnicianSerializer here because
+        # we update TechnicianProfile manually.
+        # ----------------------------------------------------------------
+
+        serializer_data = (
+            request.data.copy()
+        )
+
+        serializer_data.pop(
             "technician_profile",
             None,
         )
 
-        user_data.pop(
-            "profile_photo",
-            None,
-        )
-
-        user_data.pop(
-            "remove_profile_photo",
-            None,
-        )
-
-        # ----------------------------------------------------
-        # Role cannot be changed
-        # ----------------------------------------------------
-
-        user_data.pop(
+        # Protected fields.
+        serializer_data.pop(
             "role",
             None,
         )
 
-        # ----------------------------------------------------
-        # Password handled separately
-        # ----------------------------------------------------
-
-        password = user_data.pop(
-            "password",
+        serializer_data.pop(
+            "firebase_uid",
             None,
         )
 
-        # ----------------------------------------------------
-        # Update User
-        # ----------------------------------------------------
+        # ----------------------------------------------------------------
+        # USER UPDATE
+        # ----------------------------------------------------------------
 
-        serializer = self.get_serializer(
-            instance,
-            data=user_data,
-            partial=partial,
+        serializer = (
+            self.get_serializer(
+                instance,
+                data=serializer_data,
+                partial=partial,
+            )
         )
 
         serializer.is_valid(
             raise_exception=True
         )
 
-        self.perform_update(
-            serializer
+        serializer.save()
+
+        # ----------------------------------------------------------------
+        # PROFILE
+        # ----------------------------------------------------------------
+
+        profile, _ = (
+            TechnicianProfile.objects.get_or_create(
+                user=instance
+            )
         )
 
-        # ----------------------------------------------------
-        # Update Password
-        # ----------------------------------------------------
+        # ----------------------------------------------------------------
+        # REGION
+        # ----------------------------------------------------------------
 
-        if password:
-            instance.set_password(
-                password
+        if "region" in profile_data:
+            profile.region = (
+                normalize_string(
+                    profile_data.get(
+                        "region"
+                    )
+                )
             )
 
-            instance.save(
-                update_fields=[
-                    "password"
-                ]
+        # ----------------------------------------------------------------
+        # SKILLS
+        # ----------------------------------------------------------------
+
+        if "skills" in profile_data:
+            profile.skills = (
+                normalize_skills(
+                    profile_data.get(
+                        "skills"
+                    )
+                )
             )
 
-        # ----------------------------------------------------
-        # Update Technician Profile
-        # ----------------------------------------------------
+        # ----------------------------------------------------------------
+        # STATUS
+        # ----------------------------------------------------------------
 
-        update_technician_profile(
-            user=instance,
-            request=request,
-            allow_status=True,
+        if "status" in profile_data:
+            new_status = (
+                normalize_string(
+                    profile_data.get(
+                        "status"
+                    )
+                ).upper()
+            )
+
+            if new_status in {
+                "ACTIVE",
+                "BLOCKED",
+            }:
+                profile.status = (
+                    new_status
+                )
+
+        # ----------------------------------------------------------------
+        # PHOTO
+        # ----------------------------------------------------------------
+
+        photo_file = (
+            get_profile_photo_file(
+                request
+            )
         )
 
-        # ----------------------------------------------------
-        # Refresh
-        # ----------------------------------------------------
+        if photo_file:
+            profile.profile_photo = (
+                photo_file
+            )
 
-        instance.refresh_from_db()
+        # ----------------------------------------------------------------
+        # REMOVE PHOTO
+        # ----------------------------------------------------------------
 
-        # ----------------------------------------------------
-        # Response
-        # ----------------------------------------------------
+        if (
+            get_remove_photo_flag(
+                request
+            )
+            and not photo_file
+        ):
+            if profile.profile_photo:
+                profile.profile_photo.delete(
+                    save=False
+                )
+
+            profile.profile_photo = None
+
+        profile.save()
 
         return Response(
-            TechnicianSerializer(
+            serialize_technician(
                 instance
-            ).data
+            ),
+            status=
+            status.HTTP_200_OK,
         )
 
-    # ========================================================
-    # DELETE TECHNICIAN
-    # ========================================================
+    # ========================================================================
+    # DELETE
+    # ========================================================================
 
-    def perform_destroy(
+    @transaction.atomic
+    def destroy(
         self,
-        instance,
+        request,
+        *args,
+        **kwargs,
     ):
         """
-        Delete technician.
+        Permanently delete a technician.
+
+        QuerySet.delete() is intentionally used
+        instead of instance.delete().
         """
 
-        instance.delete()
+        technician_id = kwargs.get(
+            self.lookup_field,
+            kwargs.get(
+                "pk"
+            ),
+        )
+
+        technician = get_object_or_404(
+            self.get_queryset(),
+            pk=technician_id,
+        )
+
+        deleted_id = str(
+            technician.id
+        )
+
+        deleted_email = (
+            technician.email
+        )
+
+        deleted_name = (
+            technician.full_name
+        )
+
+        print(
+            "========================================"
+        )
+        print(
+            "[DELETE TECHNICIAN]"
+        )
+        print(
+            {
+                "id":
+                    deleted_id,
+                "email":
+                    deleted_email,
+                "name":
+                    deleted_name,
+            }
+        )
+        print(
+            "========================================"
+        )
+
+        # ----------------------------------------------------------------
+        # IMPORTANT
+        # ----------------------------------------------------------------
+        # QuerySet.delete() returns:
+        #
+        # (deleted_count, deleted_details)
+        # ----------------------------------------------------------------
+
+        (
+            deleted_count,
+            deleted_details,
+        ) = (
+            User.objects
+            .filter(
+                pk=technician.id,
+                role=UserRole.TECHNICIAN,
+            )
+            .delete()
+        )
+
+        print(
+            "[DELETE TECHNICIAN RESULT]",
+            {
+                "deleted_count":
+                    deleted_count,
+                "deleted_details":
+                    deleted_details,
+            },
+        )
+
+        # ----------------------------------------------------------------
+        # VERIFY
+        # ----------------------------------------------------------------
+
+        still_exists = (
+            User.objects
+            .filter(
+                pk=technician.id
+            )
+            .exists()
+        )
+
+        print(
+            "[DELETE TECHNICIAN VERIFY]",
+            {
+                "id":
+                    deleted_id,
+                "still_exists":
+                    still_exists,
+            },
+        )
+
+        if still_exists:
+            return Response(
+                {
+                    "success": False,
+                    "message":
+                        "Technician could not be deleted.",
+                    "deleted_id":
+                        deleted_id,
+                },
+                status=
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        return Response(
+            {
+                "success": True,
+                "message":
+                    "Technician deleted successfully.",
+                "deleted_id":
+                    deleted_id,
+                "email":
+                    deleted_email,
+                "name":
+                    deleted_name,
+            },
+            status=
+            status.HTTP_200_OK,
+        )
 
 
-# ============================================================
-# OPERATIONS ADMIN - JOBS
-# ============================================================
-
+# ============================================================================
+# OPERATION ADMIN JOB
+# ============================================================================
 
 class OperationAdminJobViewSet(
     viewsets.ModelViewSet
 ):
     """
-    Operations Admin API for assigning
-    and managing technician jobs.
+    Operations Admin API for managing technician jobs.
     """
 
     serializer_class = (
@@ -734,17 +993,15 @@ class OperationAdminJobViewSet(
         )
 
 
-# ============================================================
-# OPERATIONS ADMIN - TECHNICIANS
-# ============================================================
-
+# ============================================================================
+# OPERATION ADMIN TECHNICIAN
+# ============================================================================
 
 class OperationAdminTechnicianViewSet(
     viewsets.ReadOnlyModelViewSet
 ):
     """
-    Operations Admin API for viewing
-    technicians and their performance.
+    Operations Admin API for technician performance.
     """
 
     permission_classes = [
@@ -756,11 +1013,12 @@ class OperationAdminTechnicianViewSet(
         TechnicianPerformanceSerializer
     )
 
-    # ========================================================
-    # QUERYSET
-    # ========================================================
-
     def get_queryset(self):
+        from django.db.models import (
+            Count,
+            Q,
+            Avg,
+        )
 
         return (
             User.objects
@@ -778,9 +1036,8 @@ class OperationAdminTechnicianViewSet(
                 completed_jobs=Count(
                     "assigned_jobs",
                     filter=Q(
-                        assigned_jobs__status=(
-                            "COMPLETED"
-                        )
+                        assigned_jobs__status=
+                        "COMPLETED"
                     ),
                 ),
 
@@ -798,9 +1055,8 @@ class OperationAdminTechnicianViewSet(
                 cancelled_jobs=Count(
                     "assigned_jobs",
                     filter=Q(
-                        assigned_jobs__status=(
-                            "CANCELLED"
-                        )
+                        assigned_jobs__status=
+                        "CANCELLED"
                     ),
                 ),
 
@@ -810,9 +1066,46 @@ class OperationAdminTechnicianViewSet(
             )
         )
 
-    # ========================================================
-    # LIST
-    # ========================================================
+    def _build_performance_data(
+        self,
+        tech,
+    ):
+        return {
+            "technician_id":
+                tech.id,
+
+            "full_name":
+                tech.full_name,
+
+            "email":
+                tech.email,
+
+            "status": (
+                tech
+                .technician_profile
+                .status
+                if hasattr(
+                    tech,
+                    "technician_profile",
+                )
+                else "UNKNOWN"
+            ),
+
+            "total_jobs":
+                tech.total_jobs,
+
+            "completed_jobs":
+                tech.completed_jobs,
+
+            "pending_jobs":
+                tech.pending_jobs,
+
+            "cancelled_jobs":
+                tech.cancelled_jobs,
+
+            "average_rating":
+                tech.avg_rating,
+        }
 
     def list(
         self,
@@ -820,71 +1113,27 @@ class OperationAdminTechnicianViewSet(
         *args,
         **kwargs,
     ):
+        queryset = (
+            self.get_queryset()
+        )
 
-        queryset = self.get_queryset()
-
-        data = []
-
-        for tech in queryset:
-
-            profile = getattr(
-                tech,
-                "technician_profile",
-                None,
+        data = [
+            self._build_performance_data(
+                tech
             )
+            for tech in queryset
+        ]
 
-            data.append(
-                {
-                    "technician_id": tech.id,
-
-                    "full_name": (
-                        tech.full_name
-                    ),
-
-                    "email": (
-                        tech.email
-                    ),
-
-                    "status": (
-                        profile.status
-                        if profile
-                        else "UNKNOWN"
-                    ),
-
-                    "total_jobs": (
-                        tech.total_jobs
-                    ),
-
-                    "completed_jobs": (
-                        tech.completed_jobs
-                    ),
-
-                    "pending_jobs": (
-                        tech.pending_jobs
-                    ),
-
-                    "cancelled_jobs": (
-                        tech.cancelled_jobs
-                    ),
-
-                    "average_rating": (
-                        tech.avg_rating
-                    ),
-                }
+        serializer = (
+            self.get_serializer(
+                data,
+                many=True,
             )
-
-        serializer = self.get_serializer(
-            data,
-            many=True,
         )
 
         return Response(
             serializer.data
         )
-
-    # ========================================================
-    # RETRIEVE
-    # ========================================================
 
     def retrieve(
         self,
@@ -892,55 +1141,20 @@ class OperationAdminTechnicianViewSet(
         *args,
         **kwargs,
     ):
-
-        tech = self.get_object()
-
-        profile = getattr(
-            tech,
-            "technician_profile",
-            None,
+        tech = (
+            self.get_object()
         )
 
-        data = {
-            "technician_id": tech.id,
+        data = (
+            self._build_performance_data(
+                tech
+            )
+        )
 
-            "full_name": (
-                tech.full_name
-            ),
-
-            "email": (
-                tech.email
-            ),
-
-            "status": (
-                profile.status
-                if profile
-                else "UNKNOWN"
-            ),
-
-            "total_jobs": (
-                tech.total_jobs
-            ),
-
-            "completed_jobs": (
-                tech.completed_jobs
-            ),
-
-            "pending_jobs": (
-                tech.pending_jobs
-            ),
-
-            "cancelled_jobs": (
-                tech.cancelled_jobs
-            ),
-
-            "average_rating": (
-                tech.avg_rating
-            ),
-        }
-
-        serializer = self.get_serializer(
-            data
+        serializer = (
+            self.get_serializer(
+                data
+            )
         )
 
         return Response(
@@ -948,17 +1162,18 @@ class OperationAdminTechnicianViewSet(
         )
 
 
-# ============================================================
-# TECHNICIAN - MY JOBS
-# ============================================================
-
+# ============================================================================
+# TECHNICIAN MY JOBS
+# ============================================================================
 
 class TechnicianMyJobsViewSet(
     viewsets.ModelViewSet
 ):
     """
-    Technician API for viewing
-    their assigned jobs.
+    Technician can view/update own jobs.
+
+    Technicians cannot create jobs
+    and cannot delete jobs.
     """
 
     permission_classes = [
@@ -997,11 +1212,11 @@ class TechnicianMyJobsViewSet(
     ]
 
     def get_queryset(self):
-
         return (
             TechnicianJob.objects
             .filter(
-                technician=self.request.user
+                technician=
+                self.request.user
             )
             .select_related(
                 "customer",
@@ -1016,34 +1231,37 @@ class TechnicianMyJobsViewSet(
         self,
         serializer,
     ):
-        """
-        Technicians cannot create jobs.
-        """
+        from rest_framework.exceptions import (
+            MethodNotAllowed,
+        )
 
-        pass
+        raise MethodNotAllowed(
+            "POST"
+        )
 
     def perform_destroy(
         self,
         instance,
     ):
-        """
-        Technicians cannot delete jobs.
-        """
+        from rest_framework.exceptions import (
+            MethodNotAllowed,
+        )
 
-        pass
+        raise MethodNotAllowed(
+            "DELETE"
+        )
 
 
-# ============================================================
-# TECHNICIAN - MY PROFILE
-# ============================================================
-
+# ============================================================================
+# TECHNICIAN MY PROFILE
+# ============================================================================
 
 class TechnicianMyProfileViewSet(
     viewsets.GenericViewSet
 ):
     """
-    Technician API for viewing
-    and updating their own profile.
+    Technician can view and update
+    their own profile.
     """
 
     permission_classes = [
@@ -1055,18 +1273,7 @@ class TechnicianMyProfileViewSet(
         TechnicianSerializer
     )
 
-    parser_classes = [
-        JSONParser,
-        MultiPartParser,
-        FormParser,
-    ]
-
-    # ========================================================
-    # QUERYSET
-    # ========================================================
-
     def get_queryset(self):
-
         return (
             User.objects
             .filter(
@@ -1077,10 +1284,6 @@ class TechnicianMyProfileViewSet(
             )
         )
 
-    # ========================================================
-    # ME
-    # ========================================================
-
     @action(
         detail=False,
         methods=[
@@ -1088,11 +1291,11 @@ class TechnicianMyProfileViewSet(
             "patch",
         ],
     )
+    @transaction.atomic
     def me(
         self,
         request,
     ):
-
         user = (
             self.get_queryset()
             .first()
@@ -1101,114 +1304,233 @@ class TechnicianMyProfileViewSet(
         if not user:
             return Response(
                 {
-                    "detail": (
-                        "Technician profile "
-                        "not found."
-                    )
+                    "detail":
+                        "Technician profile not found."
                 },
-                status=(
-                    status.HTTP_404_NOT_FOUND
-                ),
+                status=
+                status.HTTP_404_NOT_FOUND,
             )
 
-        # ----------------------------------------------------
+        # ====================================================================
         # GET
-        # ----------------------------------------------------
+        # ====================================================================
 
         if request.method == "GET":
-
             return Response(
-                self.get_serializer(
+                serialize_technician(
                     user
-                ).data
+                ),
+                status=
+                status.HTTP_200_OK,
             )
 
-        # ----------------------------------------------------
-        # PATCH
-        # ----------------------------------------------------
+        # ====================================================================
+        # PARSE REQUEST
+        # ====================================================================
 
-        user_data = request.data.copy()
+        profile_data = parse_profile_data(
+            request.data
+        )
 
-        # Remove technician profile data
-        user_data.pop(
+        # ====================================================================
+        # LANGUAGE
+        # ====================================================================
+
+        requested_language = (
+            request.data.get(
+                "language"
+            )
+        )
+
+        if requested_language is not None:
+            requested_language = (
+                normalize_string(
+                    requested_language
+                ).lower()
+            )
+
+            if requested_language not in {
+                "en",
+                "bn",
+            }:
+                return Response(
+                    {
+                        "detail":
+                            "Language must be either 'en' or 'bn'."
+                    },
+                    status=
+                    status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ====================================================================
+        # USER DATA
+        #
+        # Do NOT pass technician_profile
+        # to TechnicianSerializer.
+        # ====================================================================
+
+        serializer_data = (
+            request.data.copy()
+        )
+
+        serializer_data.pop(
             "technician_profile",
             None,
         )
 
-        # Remove photo
-        user_data.pop(
-            "profile_photo",
-            None,
-        )
-
-        # Remove photo flag
-        user_data.pop(
-            "remove_profile_photo",
-            None,
-        )
-
-        # Technician cannot change role
-        user_data.pop(
+        # Technicians cannot change role.
+        serializer_data.pop(
             "role",
             None,
         )
 
-        # Technician cannot modify is_active
-        user_data.pop(
+        # Technicians cannot activate/deactivate
+        # their account themselves.
+        serializer_data.pop(
             "is_active",
             None,
         )
 
-        # ----------------------------------------------------
-        # Update User
-        # ----------------------------------------------------
+        # Technicians cannot change Firebase UID.
+        serializer_data.pop(
+            "firebase_uid",
+            None,
+        )
 
-        serializer = self.get_serializer(
-            user,
-            data=user_data,
-            partial=True,
+        # ====================================================================
+        # USER VALIDATION
+        # ====================================================================
+
+        serializer = (
+            self.get_serializer(
+                user,
+                data=serializer_data,
+                partial=True,
+            )
         )
 
         serializer.is_valid(
             raise_exception=True
         )
 
-        self.perform_update(
-            serializer
+        serializer.save()
+
+        # ====================================================================
+        # PROFILE
+        # ====================================================================
+
+        profile, _ = (
+            TechnicianProfile.objects.get_or_create(
+                user=user
+            )
         )
 
-        # ----------------------------------------------------
-        # Update profile
+        # ====================================================================
+        # REGION
+        # ====================================================================
+
+        if "region" in profile_data:
+            profile.region = normalize_string(
+                profile_data.get(
+                    "region"
+                )
+            )
+
+        # ====================================================================
+        # SKILLS
+        # ====================================================================
+
+        if "skills" in profile_data:
+            profile.skills = normalize_skills(
+                profile_data.get(
+                    "skills"
+                )
+            )
+
+        # ====================================================================
+        # STATUS
         #
-        # Status disabled for technician.
-        # ----------------------------------------------------
+        # IMPORTANT:
+        # A technician should NOT be able to
+        # block/activate their own account.
+        #
+        # Only update status when it is sent by
+        # another trusted backend flow.
+        # ====================================================================
 
-        update_technician_profile(
-            user=user,
-            request=request,
-            allow_status=False,
+        # Intentionally ignored here.
+
+        # ====================================================================
+        # PROFILE PHOTO
+        # ====================================================================
+
+        photo_file = (
+            get_profile_photo_file(
+                request
+            )
         )
 
-        user.refresh_from_db()
+        if photo_file:
+            profile.profile_photo = (
+                photo_file
+            )
+
+        # ====================================================================
+        # REMOVE PROFILE PHOTO
+        # ====================================================================
+
+        if (
+            get_remove_photo_flag(
+                request
+            )
+            and not photo_file
+        ):
+            if profile.profile_photo:
+                profile.profile_photo.delete(
+                    save=False
+                )
+
+            profile.profile_photo = None
+
+        profile.save()
+
+        # ====================================================================
+        # LANGUAGE
+        # ====================================================================
+
+        if requested_language is not None:
+            user.language = (
+                requested_language
+            )
+
+            user.save(
+                update_fields=[
+                    "language"
+                ]
+            )
+
+        # ====================================================================
+        # RESPONSE
+        # ====================================================================
 
         return Response(
-            self.get_serializer(
+            serialize_technician(
                 user
-            ).data
+            ),
+            status=
+            status.HTTP_200_OK,
         )
 
 
-# ============================================================
-# TECHNICIAN - MY PERFORMANCE
-# ============================================================
-
+# ============================================================================
+# TECHNICIAN MY PERFORMANCE
+# ============================================================================
 
 class TechnicianMyPerformanceViewSet(
     viewsets.GenericViewSet
 ):
     """
-    Technician API for viewing
-    their own performance.
+    Technician performance API.
     """
 
     permission_classes = [
@@ -1220,11 +1542,12 @@ class TechnicianMyPerformanceViewSet(
         TechnicianPerformanceSerializer
     )
 
-    # ========================================================
-    # QUERYSET
-    # ========================================================
-
     def get_queryset(self):
+        from django.db.models import (
+            Count,
+            Q,
+            Avg,
+        )
 
         return (
             User.objects
@@ -1242,9 +1565,8 @@ class TechnicianMyPerformanceViewSet(
                 completed_jobs=Count(
                     "assigned_jobs",
                     filter=Q(
-                        assigned_jobs__status=(
-                            "COMPLETED"
-                        )
+                        assigned_jobs__status=
+                        "COMPLETED"
                     ),
                 ),
 
@@ -1262,9 +1584,8 @@ class TechnicianMyPerformanceViewSet(
                 cancelled_jobs=Count(
                     "assigned_jobs",
                     filter=Q(
-                        assigned_jobs__status=(
-                            "CANCELLED"
-                        )
+                        assigned_jobs__status=
+                        "CANCELLED"
                     ),
                 ),
 
@@ -1274,10 +1595,6 @@ class TechnicianMyPerformanceViewSet(
             )
         )
 
-    # ========================================================
-    # ME
-    # ========================================================
-
     @action(
         detail=False,
         methods=["get"],
@@ -1286,7 +1603,6 @@ class TechnicianMyPerformanceViewSet(
         self,
         request,
     ):
-
         tech = (
             self.get_queryset()
             .first()
@@ -1295,63 +1611,58 @@ class TechnicianMyPerformanceViewSet(
         if not tech:
             return Response(
                 {
-                    "detail": (
+                    "detail":
                         "Technician not found."
-                    )
                 },
-                status=(
-                    status.HTTP_404_NOT_FOUND
-                ),
+                status=
+                status.HTTP_404_NOT_FOUND,
             )
 
-        profile = getattr(
-            tech,
-            "technician_profile",
-            None,
-        )
-
         data = {
-            "technician_id": tech.id,
+            "technician_id":
+                tech.id,
 
-            "full_name": (
-                tech.full_name
-            ),
+            "full_name":
+                tech.full_name,
 
-            "email": (
-                tech.email
-            ),
+            "email":
+                tech.email,
 
             "status": (
-                profile.status
-                if profile
+                tech
+                .technician_profile
+                .status
+                if hasattr(
+                    tech,
+                    "technician_profile",
+                )
                 else "UNKNOWN"
             ),
 
-            "total_jobs": (
-                tech.total_jobs
-            ),
+            "total_jobs":
+                tech.total_jobs,
 
-            "completed_jobs": (
-                tech.completed_jobs
-            ),
+            "completed_jobs":
+                tech.completed_jobs,
 
-            "pending_jobs": (
-                tech.pending_jobs
-            ),
+            "pending_jobs":
+                tech.pending_jobs,
 
-            "cancelled_jobs": (
-                tech.cancelled_jobs
-            ),
+            "cancelled_jobs":
+                tech.cancelled_jobs,
 
-            "average_rating": (
-                tech.avg_rating
-            ),
+            "average_rating":
+                tech.avg_rating,
         }
 
-        serializer = self.get_serializer(
-            data
+        serializer = (
+            self.get_serializer(
+                data
+            )
         )
 
         return Response(
-            serializer.data
+            serializer.data,
+            status=
+            status.HTTP_200_OK,
         )

@@ -13,6 +13,9 @@ urlpatterns = [
 
     path("api/auth/", include("apps.accounts.api.urls")),
 
+    # Users / Accounts
+    path("api/", include("apps.accounts.urls")),
+
     # Customers
     path("api/customers/", include("apps.customers.api.urls")),
 
@@ -35,6 +38,12 @@ urlpatterns = [
 
     # Service Bookings
     path("api/", include("apps.service_bookings.urls")),
+
+    # Technicians
+    path("api/technicians/", include("apps.technicians.api.urls")),
+
+    # Notifications
+    path("api/notifications/", include("apps.notifications.api.urls")),
 
     # Technicians
     path("api/technicians/", include("apps.technicians.api.urls")),

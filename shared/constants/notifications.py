@@ -7,6 +7,9 @@ class NotificationType(models.TextChoices):
     SMS = "SMS", "SMS"
 
 class EventType(models.TextChoices):
+    INSTALLATION_REQUESTED = "INSTALLATION_REQUESTED", "Installation Requested"
+    INSTALLATION_APPROVED = "INSTALLATION_APPROVED", "Installation Approved"
+    INSTALLATION_SCHEDULED = "INSTALLATION_SCHEDULED", "Installation Scheduled"
     INSTALLATION_ASSIGNED = "INSTALLATION_ASSIGNED", "Installation Assigned"
     TECHNICIAN_ON_THE_WAY = "TECHNICIAN_ON_THE_WAY", "Technician On The Way"
     INSTALLATION_COMPLETED = "INSTALLATION_COMPLETED", "Installation Completed"
