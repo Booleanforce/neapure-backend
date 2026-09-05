@@ -65,6 +65,7 @@ class User(
         null=True,
     )
 
+
     role = models.CharField(
         max_length=30,
         choices=UserRole.choices,

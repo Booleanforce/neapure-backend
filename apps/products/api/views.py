@@ -248,8 +248,9 @@ class ProductViewSet(viewsets.ModelViewSet):
         )
 
         if not serializer.is_valid():
-            return Response(
-                serializer.errors,
+            print(serializer.errors)
+            return ApiResponse.error(
+                errors=serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
