@@ -19,6 +19,9 @@ class UserManager(BaseUserManager):
 
         email = self.normalize_email(email)
 
+        extra_fields.setdefault("language", "en")
+        extra_fields.setdefault("location", "Unknown")
+
         user = self.model(
             email=email,
             full_name=full_name,

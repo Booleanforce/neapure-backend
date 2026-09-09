@@ -11,7 +11,6 @@ class Notification(BaseModel):
     
     # Generic relation or simple text for link (simpler)
     link = models.CharField(max_length=255, blank=True, null=True)
-    
     notification_type = models.CharField(
         max_length=50, 
         choices=NotificationType.choices,
@@ -28,14 +27,10 @@ class Notification(BaseModel):
         default=NotificationPriority.NORMAL
     )
     
-    is_read = models.BooleanField(default=False)
-    read_at = models.DateTimeField(blank=True, null=True)
-    
-    # Generic relation or simple text for link (simpler)
-    link = models.CharField(max_length=255, blank=True, null=True)
-    
-    # Metadata for additional context (e.g., Action URL, related entity ID)
     metadata = models.JSONField(blank=True, null=True, default=dict)
+    read_at = models.DateTimeField(blank=True, null=True)
+    deleted_at = models.DateTimeField(blank=True, null=True)
+    is_deleted = models.BooleanField(default=False)
 
     class Meta:
         db_table = "notifications"

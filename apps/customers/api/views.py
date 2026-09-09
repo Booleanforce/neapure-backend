@@ -72,10 +72,17 @@ class CustomerViewSet(viewsets.ModelViewSet):
 
         profile.save()
 
+        valid_keys = [f.name for f in CustomerAddress._meta.get_fields()]
         for address in addresses:
+            if "address_line_1" in address:
+                address["full_address"] = address.pop("address_line_1")
+            if "state" in address:
+                address["division_state"] = address.pop("state")
+            
+            clean_address = {k: v for k, v in address.items() if k in valid_keys}
             CustomerAddress.objects.create(
                 customer=user,
-                **address,
+                **clean_address,
             )
 
         
